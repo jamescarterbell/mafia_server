@@ -1,8 +1,8 @@
 use std::net::TcpStream;
 use std::net::TcpListener;
 use rocket::State;
-use std::borrow::BorrowMut;
 use std::sync::RwLock;
+use std::thread;
 
 // Players have a role, a last vote, and a number
 struct Player{
@@ -24,7 +24,7 @@ enum Role{
 }
 
 struct ConnectedPlayer{
-    stream: TcpStatus,
+    stream: RwLock<TcpStatus>,
     player: Option<Player>
 }
 
@@ -34,12 +34,15 @@ enum TcpStatus{
 }
 
 impl ConnectedPlayer{
-    fn open_connections(&mut self){
-        if let TcpStatus::Listening(listener) = &self.stream{
-            if let Result::Ok((stream, addr)) = listener.accept(){
-                self.stream = TcpStatus::Connected(stream)
+    fn open_connections<'a>(&mut self){
+        thread::spawn(move || {
+            let mut stream = self.stream.write().unwrap();
+            if let TcpStatus::Listening(listener) = &*stream{
+                if let Result::Ok((out_stream, _addr)) = listener.accept(){
+                    *stream = TcpStatus::Connected(out_stream)
+                }
             }
-        }
+        });
     }
 }
 
@@ -53,10 +56,9 @@ pub fn new_connection(game_list: State<GameList>) -> String{
             let port = listener.local_addr().unwrap().port().to_string();
 
             let new_player = ConnectedPlayer{
-                stream: TcpStatus::Listening(listener),
+                stream: RwLock::new(TcpStatus::Listening(listener)),
                 player: None,
             };
-
             game.players.push(new_player);
             return port;
         }
@@ -66,7 +68,7 @@ pub fn new_connection(game_list: State<GameList>) -> String{
     let port = listener.local_addr().unwrap().port().to_string();
 
     let new_player = ConnectedPlayer{
-        stream: TcpStatus::Listening(listener),
+        stream: RwLock::new(TcpStatus::Listening(listener)),
         player: None,
     };
 
