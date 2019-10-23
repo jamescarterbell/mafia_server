@@ -1,8 +1,9 @@
 use rocket::State;
 use std::net::TcpListener;
 use std::net::TcpStream;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
-use std::sync::RwLock;
+use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
 
@@ -36,6 +37,8 @@ enum TcpStatus {
     Connected(TcpStream),
 }
 
+// NETWORKING LOGIC
+
 impl ConnectedPlayer {
     fn open_connections(mut self) -> Self {
         if let TcpStatus::Uninitialized(listener) = self.stream {
@@ -50,25 +53,21 @@ impl ConnectedPlayer {
         }
         Result::Err(stream)
     }
-
-    fn check_connections(mut self) -> Result<Self, ()> {
-        if let TcpStatus::Listening(handle) = self.stream {
-            let result = handle.join().unwrap();
-            match result {
+    fn check_connections(&mut self) {
+        if let TcpStatus::Listening(handle) = &self.stream {
+            match handle.join().unwrap() {
                 Ok(stream) => {
                     self.stream = TcpStatus::Connected(stream);
-                    return Result::Ok(self);
                 }
                 Err(listener) => self.stream = TcpStatus::Uninitialized(listener),
             }
         }
-        Result::Err(())
     }
 }
 
 #[get("/new_connection")]
 pub fn new_connection(game_list: State<Arc<GameList>>) -> String {
-    let mut games = game_list.inner().games.write().unwrap();
+    let mut games = game_list.inner().games.lock().unwrap();
     for game in games.iter_mut() {
         if game.players.len() < game.max_players as usize {
             let listener = TcpListener::bind("localhost:0").unwrap();
@@ -98,6 +97,47 @@ pub fn new_connection(game_list: State<Arc<GameList>>) -> String {
     return port;
 }
 
+pub struct GameList {
+    pub games: Mutex<Vec<Game>>,
+}
+
+impl GameList {
+    pub fn new() -> GameList {
+        GameList {
+            games: Mutex::new(vec![]),
+        }
+    }
+}
+
+pub fn check_games(in_list: Arc<GameList>, out: Sender<Game>) -> JoinHandle<()> {
+    thread::spawn(move || loop {
+        let mut games = in_list.games.lock().unwrap();
+        let mut remove_games: Vec<usize> = vec![];
+        for (i, game) in games.iter().enumerate() {
+            if game.players.len() == game.max_players as usize {
+                remove_games.push(i);
+            }
+        }
+        for num in remove_games.drain(..).rev() {
+            let _ = out.send(games.remove(num)).unwrap();
+        }
+    })
+}
+
+pub fn run_active_games(active_games: GameList, input: Receiver<Game>) -> JoinHandle<()> {
+    thread::spawn(move || loop {
+        let mut games = active_games.games.lock().unwrap();
+        for game in input.try_iter() {
+            games.push(game);
+        }
+        for game in games.iter_mut() {
+            game.run_game();
+        }
+    })
+}
+
+// /NETWORKING LOGIC
+
 pub struct Game {
     players: Vec<ConnectedPlayer>,
     phase: Phase,
@@ -107,13 +147,24 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(max_players: u8) -> Game {
+    fn new(max_players: u8) -> Game {
         Game {
             players: vec![],
             phase: Phase::Start,
             mafia_left: 0,
             innocent_left: 0,
             max_players: max_players,
+        }
+    }
+
+    fn run_game(&mut self) {
+        match self.phase {
+            Phase::Start => {
+                for player in self.players.iter_mut() {
+                    player.check_connections();
+                }
+            }
+            _ => println!("Phase not implemented"),
         }
     }
 }
@@ -125,16 +176,4 @@ enum Phase {
     Vote,
     Save,
     Kill,
-}
-
-pub struct GameList {
-    pub games: RwLock<Vec<Game>>,
-}
-
-impl GameList {
-    pub fn new() -> GameList {
-        GameList {
-            games: RwLock::new(vec![]),
-        }
-    }
 }

@@ -5,17 +5,20 @@ extern crate rocket;
 
 mod mafia;
 
+use std::sync::mpsc::channel;
 use std::sync::Arc;
-use std::thread;
 
 fn main() {
-    let game_list = Arc::new(mafia::GameList::new());
-    let in_list = game_list.clone();
-    let t = thread::spawn(move || loop {
-        println!("{}", in_list.games.read().unwrap().len())
-    });
+    let waiting_games = Arc::new(mafia::GameList::new());
+    let active_games = mafia::GameList::new();
+    let in_list = waiting_games.clone();
+
+    let (send, recieve) = channel();
+
+    mafia::check_games(in_list, send);
+    mafia::run_active_games(active_games, recieve);
     rocket::ignite()
-        .manage(game_list)
+        .manage(waiting_games)
         .mount("/", routes![mafia::new_connection])
         .launch();
 }
