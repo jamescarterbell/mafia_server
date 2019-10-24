@@ -4,7 +4,6 @@ use std::net::TcpListener;
 use std::net::TcpStream;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
@@ -70,21 +69,28 @@ impl ConnectedPlayer {
         mem::swap(&mut self.stream, &mut hold);
 
         // Temp solution
-        if let TcpStatus::Listening(handle, recieve) = hold {
-            if recieve.try_iter().count() != 0 {
-                match handle.join().unwrap() {
-                    Ok(stream) => {
-                        self.stream = TcpStatus::Connected(stream);
-                        return true;
+        match hold {
+            TcpStatus::Listening(handle, recieve) => {
+                if recieve.try_iter().count() != 0 {
+                    match handle.join().unwrap() {
+                        Ok(stream) => {
+                            self.stream = TcpStatus::Connected(stream);
+                            return true;
+                        }
+                        Err(_) => {
+                            self.stream = TcpStatus::ConnectionError;
+                        }
                     }
-                    Err(_) => {
-                        self.stream = TcpStatus::ConnectionError;
-                        return false;
-                    }
+                } else {
+                    self.stream = TcpStatus::Listening(handle, recieve);
                 }
-            } else {
-                self.stream = TcpStatus::Listening(handle, recieve);
             }
+            TcpStatus::Connected(stream) => {
+                self.stream = TcpStatus::Connected(stream);
+                return true;
+            }
+            TcpStatus::Uninitialized(listener) => self.stream = TcpStatus::Uninitialized(listener),
+            _ => self.stream = TcpStatus::ConnectionError,
         }
         return false;
     }
@@ -113,10 +119,9 @@ pub fn check_games(out: Sender<Game>, players: Receiver<ConnectedPlayer>) -> Joi
                 match game {
                     Some(mut lobby) => {
                         lobby.players.push(player);
-                        if lobby.players.len() > lobby.max_players as usize {
+                        if lobby.players.len() == lobby.max_players as usize {
                             let _ = out.send(lobby);
                             game = None;
-                            println!("Sent game over!");
                         } else {
                             game = Some(lobby);
                         }
@@ -140,7 +145,6 @@ pub fn run_active_games(
         let mut games: Vec<Game> = Vec::new();
         loop {
             for game in input.try_iter() {
-                println!("Got game!");
                 games.push(game);
             }
             let mut good_games = vec![];
@@ -184,7 +188,7 @@ impl Game {
         let mut roles = vec![];
         roles.push(Role::Doctor);
         roles.push(Role::Detective);
-        for i in 0..self.max_players / 4 {
+        for _ in 0..self.max_players / 4 {
             roles.push(Role::Mafia);
         }
         while roles.len() < self.max_players as usize {
@@ -197,10 +201,10 @@ impl Game {
         match self.phase {
             Phase::Start => {
                 // Check if all players are connected
-                let mut all_players_ready = true;
                 for player in self.players.iter_mut() {
                     if !player.check_connections() {
-                        all_players_ready = false;
+                        self.phase = Phase::End;
+                        return;
                     }
                 }
 
@@ -209,14 +213,12 @@ impl Game {
                 let mut rng = rand::thread_rng();
                 roles.shuffle(&mut rng);
 
-                if all_players_ready {
-                    for (i, player) in self.players.iter_mut().enumerate() {
-                        player.player = Some(Player {
-                            role: roles.pop().unwrap(),
-                            status: Status::Alive,
-                            id: i as u8,
-                        });
-                    }
+                for (i, player) in self.players.iter_mut().enumerate() {
+                    player.player = Some(Player {
+                        role: roles.pop().unwrap(),
+                        status: Status::Alive,
+                        id: i as u8,
+                    });
                 }
                 self.phase = Phase::Detect;
             }
