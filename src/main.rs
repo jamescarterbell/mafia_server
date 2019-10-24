@@ -3,6 +3,7 @@
 #[macro_use]
 extern crate rocket;
 
+mod game;
 mod mafia;
 
 use std::sync::mpsc::channel;
