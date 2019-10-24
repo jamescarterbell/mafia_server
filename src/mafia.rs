@@ -1,6 +1,8 @@
+use rand::seq::SliceRandom;
 use rocket::State;
 use std::net::TcpListener;
 use std::net::TcpStream;
+use std::sync::mpsc::channel;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -23,66 +25,73 @@ enum Role {
     Innocent,
     Detective,
     Doctor,
-    Wolf,
+    Mafia,
 }
 
-struct ConnectedPlayer {
+pub struct ConnectedPlayer {
     stream: TcpStatus,
     player: Option<Player>,
 }
 
 enum TcpStatus {
     Uninitialized(TcpListener),
-    Listening(JoinHandle<Result<TcpStream, TcpListener>>),
+    Listening(JoinHandle<Result<TcpStream, TcpListener>>, Receiver<bool>),
     Connected(TcpStream),
+    Hold,
+    ConnectionError,
 }
 
 // NETWORKING LOGIC
 
 impl ConnectedPlayer {
     fn open_connections(mut self) -> Self {
+        let (send, recieve) = channel::<bool>();
         if let TcpStatus::Uninitialized(listener) = self.stream {
-            self.stream = TcpStatus::Listening(thread::spawn(|| ConnectedPlayer::listen(listener)));
+            self.stream = TcpStatus::Listening(
+                thread::spawn(|| ConnectedPlayer::listen(listener, send)),
+                recieve,
+            );
         }
         self
     }
 
-    fn listen(stream: TcpListener) -> Result<TcpStream, TcpListener> {
+    fn listen(stream: TcpListener, send: Sender<bool>) -> Result<TcpStream, TcpListener> {
         if let Result::Ok((out_stream, _addr)) = stream.accept() {
+            let _ = send.send(true);
             return Result::Ok(out_stream);
         }
         Result::Err(stream)
     }
-    fn check_connections(&mut self) {
-        if let TcpStatus::Listening(handle) = &self.stream {
-            match handle.join().unwrap() {
-                Ok(stream) => {
-                    self.stream = TcpStatus::Connected(stream);
+
+    fn check_connections(&mut self) -> bool {
+        let mut hold = TcpStatus::Hold;
+
+        use std::mem;
+        mem::swap(&mut self.stream, &mut hold);
+
+        // Temp solution
+        if let TcpStatus::Listening(handle, recieve) = hold {
+            if recieve.try_iter().count() != 0 {
+                match handle.join().unwrap() {
+                    Ok(stream) => {
+                        self.stream = TcpStatus::Connected(stream);
+                        return true;
+                    }
+                    Err(_) => {
+                        self.stream = TcpStatus::ConnectionError;
+                        return false;
+                    }
                 }
-                Err(listener) => self.stream = TcpStatus::Uninitialized(listener),
+            } else {
+                self.stream = TcpStatus::Listening(handle, recieve);
             }
         }
+        return false;
     }
 }
 
 #[get("/new_connection")]
-pub fn new_connection(game_list: State<Arc<GameList>>) -> String {
-    let mut games = game_list.inner().games.lock().unwrap();
-    for game in games.iter_mut() {
-        if game.players.len() < game.max_players as usize {
-            let listener = TcpListener::bind("localhost:0").unwrap();
-            let port = listener.local_addr().unwrap().port().to_string();
-
-            let new_player = ConnectedPlayer {
-                stream: TcpStatus::Uninitialized(listener),
-                player: None,
-            }
-            .open_connections();
-            game.players.push(new_player);
-            return port;
-        }
-    }
-    let mut game = Game::new(8);
+pub fn new_connection(player_channel: State<Mutex<Sender<ConnectedPlayer>>>) -> String {
     let listener = TcpListener::bind("localhost:0").unwrap();
     let port = listener.local_addr().unwrap().port().to_string();
 
@@ -92,46 +101,60 @@ pub fn new_connection(game_list: State<Arc<GameList>>) -> String {
     }
     .open_connections();
 
-    game.players.push(new_player);
-    games.push(game);
+    let _ = player_channel.lock().unwrap().send(new_player);
     return port;
 }
 
-pub struct GameList {
-    pub games: Mutex<Vec<Game>>,
-}
-
-impl GameList {
-    pub fn new() -> GameList {
-        GameList {
-            games: Mutex::new(vec![]),
-        }
-    }
-}
-
-pub fn check_games(in_list: Arc<GameList>, out: Sender<Game>) -> JoinHandle<()> {
-    thread::spawn(move || loop {
-        let mut games = in_list.games.lock().unwrap();
-        let mut remove_games: Vec<usize> = vec![];
-        for (i, game) in games.iter().enumerate() {
-            if game.players.len() == game.max_players as usize {
-                remove_games.push(i);
+pub fn check_games(out: Sender<Game>, players: Receiver<ConnectedPlayer>) -> JoinHandle<()> {
+    thread::spawn(move || {
+        let mut game: Option<Game> = None;
+        loop {
+            for player in players.try_iter() {
+                match game {
+                    Some(mut lobby) => {
+                        lobby.players.push(player);
+                        if lobby.players.len() > lobby.max_players as usize {
+                            let _ = out.send(lobby);
+                            game = None;
+                            println!("Sent game over!");
+                        } else {
+                            game = Some(lobby);
+                        }
+                    }
+                    None => {
+                        let mut lobby = Game::new(8);
+                        lobby.players.push(player);
+                        game = Some(lobby);
+                    }
+                }
             }
-        }
-        for num in remove_games.drain(..).rev() {
-            let _ = out.send(games.remove(num)).unwrap();
         }
     })
 }
 
-pub fn run_active_games(active_games: GameList, input: Receiver<Game>) -> JoinHandle<()> {
-    thread::spawn(move || loop {
-        let mut games = active_games.games.lock().unwrap();
-        for game in input.try_iter() {
-            games.push(game);
-        }
-        for game in games.iter_mut() {
-            game.run_game();
+pub fn run_active_games(
+    input: Receiver<Game>,
+    out_players: Sender<ConnectedPlayer>,
+) -> JoinHandle<()> {
+    thread::spawn(move || {
+        let mut games: Vec<Game> = Vec::new();
+        loop {
+            for game in input.try_iter() {
+                println!("Got game!");
+                games.push(game);
+            }
+            let mut good_games = vec![];
+            for mut game in games.drain(..) {
+                game.run_game();
+                if let Phase::End = game.phase {
+                    for player in game.players.drain(..) {
+                        let _ = out_players.send(player);
+                    }
+                } else {
+                    good_games.push(game);
+                }
+            }
+            games = good_games;
         }
     })
 }
@@ -157,12 +180,45 @@ impl Game {
         }
     }
 
+    fn create_role_vec(&self) -> Vec<Role> {
+        let mut roles = vec![];
+        roles.push(Role::Doctor);
+        roles.push(Role::Detective);
+        for i in 0..self.max_players / 4 {
+            roles.push(Role::Mafia);
+        }
+        while roles.len() < self.max_players as usize {
+            roles.push(Role::Innocent);
+        }
+        roles
+    }
+
     fn run_game(&mut self) {
         match self.phase {
             Phase::Start => {
+                // Check if all players are connected
+                let mut all_players_ready = true;
                 for player in self.players.iter_mut() {
-                    player.check_connections();
+                    if !player.check_connections() {
+                        all_players_ready = false;
+                    }
                 }
+
+                // If all players are connected, create roles, and assign them to players
+                let mut roles = self.create_role_vec();
+                let mut rng = rand::thread_rng();
+                roles.shuffle(&mut rng);
+
+                if all_players_ready {
+                    for (i, player) in self.players.iter_mut().enumerate() {
+                        player.player = Some(Player {
+                            role: roles.pop().unwrap(),
+                            status: Status::Alive,
+                            id: i as u8,
+                        });
+                    }
+                }
+                self.phase = Phase::Detect;
             }
             _ => println!("Phase not implemented"),
         }
@@ -176,4 +232,5 @@ enum Phase {
     Vote,
     Save,
     Kill,
+    End,
 }

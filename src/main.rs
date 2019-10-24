@@ -6,19 +6,16 @@ extern crate rocket;
 mod mafia;
 
 use std::sync::mpsc::channel;
-use std::sync::Arc;
+use std::sync::Mutex;
 
 fn main() {
-    let waiting_games = Arc::new(mafia::GameList::new());
-    let active_games = mafia::GameList::new();
-    let in_list = waiting_games.clone();
+    let (send_games, recieve_games) = channel();
+    let (send_players, recieve_players) = channel();
 
-    let (send, recieve) = channel();
-
-    mafia::check_games(in_list, send);
-    mafia::run_active_games(active_games, recieve);
+    mafia::check_games(send_games, recieve_players);
+    mafia::run_active_games(recieve_games, send_players.clone());
     rocket::ignite()
-        .manage(waiting_games)
+        .manage(Mutex::new(send_players))
         .mount("/", routes![mafia::new_connection])
         .launch();
 }
