@@ -22,6 +22,7 @@ where
         port = socket.local_addr().unwrap().port().to_string();
         new_player.socket = SocketStatus::Uninitialized(socket);
     }
+    //new_player = new_player.open_connections();
 
     let _ = player_channel.send(new_player);
     return port;
@@ -51,9 +52,9 @@ where
 
 unsafe impl<P> std::marker::Sync for Connector<P> where P: Send + Player {}
 
-pub fn launch<P, G, C>()
+pub fn launch<P, G>()
 where
-    P: Player + Send + 'static,
+    P: Player + Send + Clone + 'static,
     G: Game<P> + Send + 'static,
 {
     let (send_games, recieve_games) = channel::<G>();

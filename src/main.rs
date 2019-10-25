@@ -108,17 +108,20 @@ enum Phase {
     End,
 }
 
+#[derive(Clone)]
 struct MafiaPlayer {
     role: Role,
     status: Status,
     id: u8,
 }
 
+#[derive(Clone)]
 enum Status {
     Alive,
     Dead,
 }
 
+#[derive(Clone)]
 enum Role {
     Innocent,
     Detective,

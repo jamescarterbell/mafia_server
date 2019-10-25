@@ -62,7 +62,6 @@ where
     type Handler = ConnectedPlayer<P>;
 
     fn connection_made(&mut self, ws: ws::Sender) -> ConnectedPlayer<P> {
-        ws.send("Connected to server!");
         ConnectedPlayer {
             socket: SocketStatus::ServerConnection,
             stream: Some(ws),
@@ -72,6 +71,7 @@ where
     }
 
     fn client_connected(&mut self, ws: ws::Sender) -> ConnectedPlayer<P> {
+        println!("Dab");
         ConnectedPlayer {
             socket: SocketStatus::ClientConnection,
             stream: Some(ws),
