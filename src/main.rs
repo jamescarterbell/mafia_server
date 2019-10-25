@@ -8,8 +8,6 @@ mod mafia;
 
 use game::{ConnectedPlayer, Connector, Game, Player};
 use rand::seq::SliceRandom;
-use std::sync::mpsc::channel;
-use std::sync::Mutex;
 
 fn main() {
     game::launch::<MafiaPlayer, Mafia>();
