@@ -6,9 +6,7 @@ use rocket::*;
 use std::io::Cursor;
 use std::marker::Send;
 use std::sync::mpsc::*;
-use std::sync::Mutex;
 use std::thread::JoinHandle;
-use ws::*;
 
 pub fn new_connection<P>(player_channel: &std::sync::mpsc::Sender<ConnectedPlayer<P>>) -> String
 where
@@ -18,11 +16,10 @@ where
 
     let mut new_player = ConnectedPlayer::new();
     if let SocketStatus::Uninitialized(socket) = new_player.socket {
-        let socket = socket.bind("127.0.0.1:00000").unwrap();
         port = socket.local_addr().unwrap().port().to_string();
         new_player.socket = SocketStatus::Uninitialized(socket);
     }
-    //new_player = new_player.open_connections();
+    new_player = new_player.open_connections();
 
     let _ = player_channel.send(new_player);
     return port;
@@ -82,7 +79,7 @@ where
                     Some(mut lobby) => {
                         let players = lobby.player_list_mut();
                         players.push(player);
-                        if players.len() == lobby.max_players() as usize {
+                        if players.len() >= lobby.max_players() as usize {
                             let _ = out.send(lobby);
                             game = None;
                         } else {
@@ -119,9 +116,10 @@ where
                 game.run_game();
                 if game.over() {
                     for mut player in game.player_list_mut().drain(..) {
-                        if !player.check_connections() {
-                            let _ = out_players.send(player);
+                        if let ConnectionStatus::Error = player.check_connections() {
+                            continue;
                         }
+                        let _ = out_players.send(player);
                     }
                 } else {
                     good_games.push(game);
@@ -143,4 +141,5 @@ where
     fn player_list_mut(&mut self) -> &mut Vec<ConnectedPlayer<P>>;
     fn max_players(&self) -> usize;
     fn max_players_mut(&mut self) -> &mut usize;
+    fn get_state(&self) -> String;
 }

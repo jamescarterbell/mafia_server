@@ -6,7 +6,7 @@ extern crate rocket;
 mod game;
 mod mafia;
 
-use game::{ConnectedPlayer, Connector, Game, Player};
+use game::{ConnectedPlayer, ConnectionStatus, Game, Player};
 use rand::seq::SliceRandom;
 
 fn main() {
@@ -16,6 +16,7 @@ fn main() {
 pub struct Mafia {
     players: Vec<ConnectedPlayer<MafiaPlayer>>,
     phase: Phase,
+    day: usize,
     mafia_left: usize,
     innocent_left: usize,
     max_players: usize,
@@ -41,6 +42,7 @@ impl Game<MafiaPlayer> for Mafia {
         Mafia {
             players: vec![],
             phase: Phase::Start,
+            day: 0,
             mafia_left: 0,
             innocent_left: 0,
             max_players: max_players,
@@ -52,7 +54,9 @@ impl Game<MafiaPlayer> for Mafia {
             Phase::Start => {
                 // Check if all players are connected
                 for player in self.players.iter_mut() {
-                    if !player.check_connections() {
+                    if let ConnectionStatus::Error | ConnectionStatus::NotConnected =
+                        player.check_connections()
+                    {
                         self.phase = Phase::End;
                         return;
                     }
@@ -63,14 +67,48 @@ impl Game<MafiaPlayer> for Mafia {
                 let mut rng = rand::thread_rng();
                 roles.shuffle(&mut rng);
 
-                for (i, player) in self.players.iter_mut().enumerate() {
+                for (i, mut player) in self.players.iter_mut().enumerate() {
                     player.player = Some(MafiaPlayer {
                         role: roles.pop().unwrap(),
                         status: Status::Alive,
                         id: i as u8,
+                        guesses: vec![0; 8],
                     });
+
+                    let state = match &player.player {
+                        Some(actual_player) => actual_player.get_state(),
+                        None => "\n".to_string(),
+                    };
+                    let _ = player.send_state(state);
                 }
                 self.phase = Phase::Detect;
+            }
+
+            Phase::Detect => {
+                let mut state = self.get_state();
+                let mut detective = None;
+                // Find the detective and send him the state of the game
+                for player in self.players.iter_mut() {
+                    match &player.player {
+                        Some(actual_player) => {
+                            if let Role::Detective = actual_player.role {
+                                state = format!("{}, {}", actual_player.get_state(), state);
+                                let _ = player.send_state(state);
+                                detective = Some(player);
+                                break;
+                            }
+                        }
+                        None => {}
+                    };
+                }
+                // Get input from detective
+                let mut buf: Vec<u8> = vec![0; 8];
+                if let Some(player) = &mut detective {
+                    let _ = player.read_input(&mut buf);
+                }
+                println!("{}", std::str::from_utf8(&buf).unwrap());
+                self.phase = Phase::PreVote;
+                panic!("DAB");
             }
             _ => println!("Phase not implemented"),
         }
@@ -95,6 +133,20 @@ impl Game<MafiaPlayer> for Mafia {
     fn max_players_mut(&mut self) -> &mut usize {
         &mut self.max_players
     }
+
+    fn get_state(&self) -> String {
+        let mut state = format!("{}", self.phase);
+        state = format!("{}, {}", state, self.day);
+        for player in self.players.iter() {
+            match &player.player {
+                Some(actual_player) => {
+                    state = format!("{}, {}", state, actual_player.get_public_state());
+                }
+                None => {}
+            };
+        }
+        state
+    }
 }
 
 #[derive(Eq, PartialEq)]
@@ -108,17 +160,41 @@ enum Phase {
     End,
 }
 
+impl std::fmt::Display for Phase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Phase::Start => write!(f, "Start"),
+            Phase::Detect => write!(f, "Detect"),
+            Phase::PreVote => write!(f, "PreVote"),
+            Phase::Vote => write!(f, "Vote"),
+            Phase::Save => write!(f, "Save"),
+            Phase::Kill => write!(f, "Kill"),
+            Phase::End => write!(f, "End"),
+        }
+    }
+}
+
 #[derive(Clone)]
 struct MafiaPlayer {
     role: Role,
     status: Status,
     id: u8,
+    guesses: Vec<u8>,
 }
 
 #[derive(Clone)]
 enum Status {
     Alive,
     Dead,
+}
+
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Status::Alive => write!(f, "Alive"),
+            Status::Dead => write!(f, "Dead"),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -129,4 +205,34 @@ enum Role {
     Mafia,
 }
 
-impl Player for MafiaPlayer {}
+impl std::fmt::Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Role::Innocent => write!(f, "Innocent"),
+            Role::Detective => write!(f, "Detective"),
+            Role::Doctor => write!(f, "Doctor"),
+            Role::Mafia => write!(f, "Mafia"),
+        }
+    }
+}
+
+impl Player for MafiaPlayer {
+    fn get_state(&self) -> String {
+        format!(
+            "{}, {}, {}",
+            format!("Player: {}", self.id),
+            format!("Role: {}", self.role),
+            format!("Status: {}", self.status)
+        )
+    }
+}
+
+impl MafiaPlayer {
+    fn get_public_state(&self) -> String {
+        let mut state = format!("Status: {}", self.status);
+        for guess in self.guesses.iter() {
+            state = format!("{}, {}", state, guess);
+        }
+        state
+    }
+}
