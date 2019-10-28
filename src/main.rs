@@ -87,14 +87,15 @@ impl Game<MafiaPlayer> for Mafia {
             Phase::Detect => {
                 let mut state = self.get_state();
                 let mut detective = None;
+                let players = &mut self.players;
                 // Find the detective and send him the state of the game
-                for player in self.players.iter_mut() {
+                for (i, player) in players.iter_mut().enumerate() {
                     match &player.player {
                         Some(actual_player) => {
                             if let Role::Detective = actual_player.role {
                                 state = format!("{}, {}", actual_player.get_state(), state);
                                 let _ = player.send_state(state);
-                                detective = Some(player);
+                                detective = Some(i);
                                 break;
                             }
                         }
@@ -103,12 +104,36 @@ impl Game<MafiaPlayer> for Mafia {
                 }
                 // Get input from detective
                 let mut buf: Vec<u8> = vec![0; 8];
-                if let Some(player) = &mut detective {
-                    let _ = player.read_input(&mut buf);
+                if let Some(player) = &detective {
+                    let _ = &players.get_mut(*player).unwrap().read_input(&mut buf);
                 }
-                println!("{}", std::str::from_utf8(&buf).unwrap());
+
+                // Get max of returned vec
+                let out = read_input(std::str::from_utf8(&buf).unwrap());
+                let mut max = None;
+                for i in 0..out.len() {
+                    match max {
+                        Some(prev) => max = Some(if out[i] > out[prev] { i } else { prev }),
+                        None => max = Some(i),
+                    }
+                }
+
+                // Get role of vote and send back to detective
+                let mut state = String::new();
+                if let Some(max) = max {
+                    state = players
+                        .get_mut(max)
+                        .unwrap()
+                        .player
+                        .as_ref()
+                        .unwrap()
+                        .get_state();
+                };
+                if let Some(player) = &mut detective {
+                    &players.get_mut(*player).unwrap().send_state(state);
+                };
+
                 self.phase = Phase::PreVote;
-                panic!("DAB");
             }
             _ => println!("Phase not implemented"),
         }
@@ -235,4 +260,12 @@ impl MafiaPlayer {
         }
         state
     }
+}
+
+fn read_input(input: &str) -> Vec<usize> {
+    let mut out = vec![];
+    for num in input.split(",") {
+        out.push(num.parse::<usize>().unwrap());
+    }
+    out
 }
