@@ -109,31 +109,95 @@ impl Game<MafiaPlayer> for Mafia {
                 }
 
                 // Get max of returned vec
-                let out = read_input(std::str::from_utf8(&buf).unwrap());
-                let mut max = None;
-                for i in 0..out.len() {
-                    match max {
-                        Some(prev) => max = Some(if out[i] > out[prev] { i } else { prev }),
-                        None => max = Some(i),
-                    }
-                }
+                let out = read_input(std::str::from_utf8(&buf).unwrap().to_string());
+                let max = max_index(&out);
 
                 // Get role of vote and send back to detective
                 let mut state = String::new();
-                if let Some(max) = max {
-                    state = players
-                        .get_mut(max)
-                        .unwrap()
-                        .player
-                        .as_ref()
-                        .unwrap()
-                        .get_state();
-                };
+                state = players
+                    .get_mut(max)
+                    .unwrap()
+                    .player
+                    .as_ref()
+                    .unwrap()
+                    .get_state();
                 if let Some(player) = &mut detective {
                     &players.get_mut(*player).unwrap().send_state(state);
                 };
 
                 self.phase = Phase::PreVote;
+            }
+
+            Phase::PreVote => {
+                let state = self.get_state();
+                let players = &mut self.players;
+
+                // Send all the players the state of the game
+                for player in players.iter_mut() {
+                    match &player.player {
+                        Some(actual_player) => {
+                            let local_state = format!("{}, {}", actual_player.get_state(), state);
+                            println!("{}", local_state);
+                            let _ = player.send_state(local_state);
+                        }
+                        None => {}
+                    };
+                }
+
+                // Recieve all the players input
+                for player in players.iter_mut() {
+                    let mut buf: Vec<u8> = vec![0; 8];
+                    let _ = player.read_input(&mut buf);
+                    let out = read_input(std::str::from_utf8(&buf).unwrap().to_string());
+                    match &mut player.player {
+                        Some(actual_player) => {
+                            actual_player.guesses = out;
+                        }
+                        None => {}
+                    };
+                }
+                self.phase = Phase::Vote;
+            }
+
+            Phase::Vote => {
+                let state = self.get_state();
+                let players = &mut self.players;
+
+                // Send all the players the newest state
+                for player in players.iter_mut() {
+                    match &player.player {
+                        Some(actual_player) => {
+                            let local_state = format!("{}, {}", actual_player.get_state(), state);
+                            let _ = player.send_state(local_state);
+                        }
+                        None => {}
+                    };
+                }
+
+                // Collected the votes
+                let mut votes: Vec<usize> = vec![0; 8];
+                for player in players.iter_mut() {
+                    let mut buf: Vec<u8> = vec![0; 8];
+                    let _ = player.read_input(&mut buf);
+                    let out = read_input(std::str::from_utf8(&buf).unwrap().to_string());
+                    let max = max_index(&out);
+                    votes[max] += 1;
+                    match &mut player.player {
+                        Some(actual_player) => {
+                            actual_player.guesses = out;
+                        }
+                        None => {}
+                    };
+                }
+
+                // Kill the target of the votes if majority
+                let verdict = max_index(&votes);
+                if votes[verdict] > votes.len() / 2 {
+                    if let Some(player) = &mut players[verdict].player {
+                        player.status = Status::Dead;
+                    }
+                }
+                self.phase = Phase::Save;
             }
             _ => println!("Phase not implemented"),
         }
@@ -181,6 +245,7 @@ enum Phase {
     PreVote,
     Vote,
     Save,
+    PreKill,
     Kill,
     End,
 }
@@ -193,6 +258,7 @@ impl std::fmt::Display for Phase {
             Phase::PreVote => write!(f, "PreVote"),
             Phase::Vote => write!(f, "Vote"),
             Phase::Save => write!(f, "Save"),
+            Phase::PreKill => write!(f, "PreKill"),
             Phase::Kill => write!(f, "Kill"),
             Phase::End => write!(f, "End"),
         }
@@ -204,7 +270,7 @@ struct MafiaPlayer {
     role: Role,
     status: Status,
     id: u8,
-    guesses: Vec<u8>,
+    guesses: Vec<usize>,
 }
 
 #[derive(Clone)]
@@ -262,10 +328,24 @@ impl MafiaPlayer {
     }
 }
 
-fn read_input(input: &str) -> Vec<usize> {
+fn read_input(input: String) -> Vec<usize> {
     let mut out = vec![];
+    println!("{}", input);
     for num in input.split(",") {
-        out.push(num.parse::<usize>().unwrap());
+        if let Ok(res) = num.parse::<usize>() {
+            out.push(res);
+        };
     }
     out
+}
+
+fn max_index(input: &Vec<usize>) -> usize {
+    let mut max = None;
+    for i in 0..input.len() {
+        match max {
+            Some(prev) => max = Some(if input[i] > input[prev] { i } else { prev }),
+            None => max = Some(i),
+        }
+    }
+    max.unwrap()
 }
