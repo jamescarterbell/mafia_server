@@ -3,6 +3,7 @@ import socket
 import time
 import asyncio
 from multiprocessing import Pool
+from random import randint
 
 
 async def openConnections():
@@ -16,7 +17,12 @@ async def openConnections():
         if not i or length == 0:
             i = True
             continue
-        message = "0,0,0,0,0,1,0,0,".encode("utf-8")
+        print(message)
+        num = randint(0, 8)
+        message = ""
+        for i in range(0, 8):
+            message += "1," if num == i else "0,"
+        message = message.encode("utf-8")
         length = len(message).to_bytes(8, byteorder='big', signed=False)
         s.send(length)
         s.send(message)

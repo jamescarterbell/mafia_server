@@ -43,8 +43,8 @@ impl Game<MafiaPlayer> for Mafia {
             players: vec![],
             phase: Phase::Start,
             day: 0,
-            mafia_left: 0,
-            innocent_left: 0,
+            mafia_left: max_players / 4,
+            innocent_left: max_players - max_players / 4,
             max_players: max_players,
         }
     }
@@ -54,10 +54,12 @@ impl Game<MafiaPlayer> for Mafia {
             Phase::Start => {
                 // Check if all players are connected
                 for player in self.players.iter_mut() {
-                    if let ConnectionStatus::Error | ConnectionStatus::NotConnected =
-                        player.check_connections()
-                    {
-                        self.phase = Phase::End;
+                    if let ConnectionStatus::Error = player.check_connections() {
+                        self.phase = Phase::Error;
+                        return;
+                    }
+
+                    if let ConnectionStatus::NotConnected = player.check_connections() {
                         return;
                     }
                 }
@@ -90,6 +92,9 @@ impl Game<MafiaPlayer> for Mafia {
                 let players = &mut self.players;
                 // Find the detective and send him the state of the game
                 for (i, player) in players.iter_mut().enumerate() {
+                    if let Status::Dead = player.get_status() {
+                        continue;
+                    }
                     match &player.player {
                         Some(actual_player) => {
                             if let Role::Detective = actual_player.role {
@@ -102,6 +107,12 @@ impl Game<MafiaPlayer> for Mafia {
                         None => {}
                     };
                 }
+
+                if let None = &detective {
+                    self.phase = Phase::PreVote;
+                    return;
+                }
+
                 // Get input from detective
                 let mut buf: Vec<u8> = vec![0; 8];
                 if let Some(player) = &detective {
@@ -134,10 +145,12 @@ impl Game<MafiaPlayer> for Mafia {
 
                 // Send all the players the state of the game
                 for player in players.iter_mut() {
+                    if let Status::Dead = player.get_status() {
+                        continue;
+                    }
                     match &player.player {
                         Some(actual_player) => {
                             let local_state = format!("{}, {}", actual_player.get_state(), state);
-                            println!("{}", local_state);
                             let _ = player.send_state(local_state);
                         }
                         None => {}
@@ -146,6 +159,9 @@ impl Game<MafiaPlayer> for Mafia {
 
                 // Recieve all the players input
                 for player in players.iter_mut() {
+                    if let Status::Dead = player.get_status() {
+                        continue;
+                    }
                     let mut buf: Vec<u8> = vec![0; 8];
                     let _ = player.read_input(&mut buf);
                     let out = read_input(std::str::from_utf8(&buf).unwrap().to_string());
@@ -165,6 +181,9 @@ impl Game<MafiaPlayer> for Mafia {
 
                 // Send all the players the newest state
                 for player in players.iter_mut() {
+                    if let Status::Dead = player.get_status() {
+                        continue;
+                    }
                     match &player.player {
                         Some(actual_player) => {
                             let local_state = format!("{}, {}", actual_player.get_state(), state);
@@ -177,6 +196,9 @@ impl Game<MafiaPlayer> for Mafia {
                 // Collected the votes
                 let mut votes: Vec<usize> = vec![0; 8];
                 for player in players.iter_mut() {
+                    if let Status::Dead = player.get_status() {
+                        continue;
+                    }
                     let mut buf: Vec<u8> = vec![0; 8];
                     let _ = player.read_input(&mut buf);
                     let out = read_input(std::str::from_utf8(&buf).unwrap().to_string());
@@ -192,15 +214,146 @@ impl Game<MafiaPlayer> for Mafia {
 
                 // Kill the target of the votes if majority
                 let verdict = max_index(&votes);
-                if votes[verdict] > votes.len() / 2 {
+                if votes[verdict] > (self.innocent_left + self.mafia_left) / 2 {
                     if let Some(player) = &mut players[verdict].player {
-                        player.status = Status::Dead;
+                        if let Status::Alive = player.status {
+                            player.status = Status::Dead;
+                            if let Role::Mafia = player.role {
+                                self.mafia_left -= 1;
+                            } else {
+                                self.innocent_left -= 1;
+                            }
+                        }
                     }
                 }
-                self.phase = Phase::Save;
+
+                if self.mafia_left == 0 || self.mafia_left == self.innocent_left {
+                    self.phase = Phase::End;
+                    return;
+                }
+                self.phase = Phase::PreKill;
+            }
+
+            Phase::PreKill => {
+                let state = self.get_state();
+                let players = &mut self.players;
+
+                // Send all the mafia players the state of the game
+                for player in players.iter_mut() {
+                    if let Status::Dead = player.get_status() {
+                        continue;
+                    }
+
+                    if let Role::Detective | Role::Innocent = player.get_role() {
+                        continue;
+                    }
+
+                    match &player.player {
+                        Some(actual_player) => {
+                            let local_state = format!("{}, {}", actual_player.get_state(), state);
+                            let _ = player.send_state(local_state);
+                        }
+                        None => {}
+                    };
+                }
+
+                // Recieve all the mafia players input
+                for player in players.iter_mut() {
+                    if let Status::Dead = player.get_status() {
+                        continue;
+                    }
+                    if let Role::Detective | Role::Innocent = player.get_role() {
+                        continue;
+                    }
+                    let mut buf: Vec<u8> = vec![0; 8];
+                    let _ = player.read_input(&mut buf);
+                    let out = read_input(std::str::from_utf8(&buf).unwrap().to_string());
+                    match &mut player.player {
+                        Some(actual_player) => {
+                            actual_player.guesses = out;
+                        }
+                        None => {}
+                    };
+                }
+                self.phase = Phase::Kill;
+            }
+
+            Phase::Kill => {
+                let state = self.get_state();
+                let players = &mut self.players;
+
+                // Send all the mafia players the newest state
+                for player in players.iter_mut() {
+                    if let Status::Dead = player.get_status() {
+                        continue;
+                    }
+                    if let Role::Detective | Role::Innocent = player.get_role() {
+                        continue;
+                    }
+                    match &player.player {
+                        Some(actual_player) => {
+                            let local_state = format!("{}, {}", actual_player.get_state(), state);
+                            let _ = player.send_state(local_state);
+                        }
+                        None => {}
+                    };
+                }
+
+                // Collected the votes
+                let mut votes: Vec<usize> = vec![0; 8];
+                for player in players.iter_mut() {
+                    if let Status::Dead = player.get_status() {
+                        continue;
+                    }
+                    if let Role::Detective | Role::Innocent = player.get_role() {
+                        continue;
+                    }
+                    let mut buf: Vec<u8> = vec![0; 8];
+                    let _ = player.read_input(&mut buf);
+                    let out = read_input(std::str::from_utf8(&buf).unwrap().to_string());
+                    let max = max_index(&out);
+                    votes[max] += 1;
+                    match &mut player.player {
+                        Some(actual_player) => {
+                            actual_player.guesses = out;
+                        }
+                        None => {}
+                    };
+                }
+
+                // Kill the target of the votes if majority
+                let verdict = max_index(&votes);
+                if votes[verdict] >= self.mafia_left / 2 {
+                    if let Some(player) = &mut players[verdict].player {
+                        if let Status::Alive = player.status {
+                            player.status = Status::Dead;
+                            if let Role::Mafia = player.role {
+                                self.mafia_left -= 1;
+                            } else {
+                                self.innocent_left -= 1;
+                            }
+                        }
+                    }
+                }
+
+                if self.mafia_left == 0 || self.mafia_left == self.innocent_left || self.day == 5 {
+                    println!("ENDED");
+                    println!("{}", self.mafia_left);
+                    println!("{}", self.innocent_left);
+                    println!("{}", self.max_players());
+                    println!("{}", self.day);
+                    self.phase = Phase::End;
+                    return;
+                }
+                self.day += 1;
+                self.phase = Phase::Detect;
             }
             _ => println!("Phase not implemented"),
         }
+    }
+
+    fn error(&self) -> bool {
+        self.phase == Phase::Error
     }
 
     fn over(&self) -> bool {
@@ -244,10 +397,10 @@ enum Phase {
     Detect,
     PreVote,
     Vote,
-    Save,
     PreKill,
     Kill,
     End,
+    Error,
 }
 
 impl std::fmt::Display for Phase {
@@ -257,10 +410,10 @@ impl std::fmt::Display for Phase {
             Phase::Detect => write!(f, "Detect"),
             Phase::PreVote => write!(f, "PreVote"),
             Phase::Vote => write!(f, "Vote"),
-            Phase::Save => write!(f, "Save"),
             Phase::PreKill => write!(f, "PreKill"),
             Phase::Kill => write!(f, "Kill"),
             Phase::End => write!(f, "End"),
+            Phase::Error => write!(f, "Error"),
         }
     }
 }
@@ -273,7 +426,7 @@ struct MafiaPlayer {
     guesses: Vec<usize>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 enum Status {
     Alive,
     Dead,
@@ -288,7 +441,7 @@ impl std::fmt::Display for Status {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 enum Role {
     Innocent,
     Detective,
@@ -330,7 +483,6 @@ impl MafiaPlayer {
 
 fn read_input(input: String) -> Vec<usize> {
     let mut out = vec![];
-    println!("{}", input);
     for num in input.split(",") {
         if let Ok(res) = num.parse::<usize>() {
             out.push(res);
@@ -348,4 +500,20 @@ fn max_index(input: &Vec<usize>) -> usize {
         }
     }
     max.unwrap()
+}
+
+impl ConnectedPlayer<MafiaPlayer> {
+    pub fn get_status(&self) -> Status {
+        if let Some(player) = &self.player {
+            return player.status;
+        }
+        Status::Dead
+    }
+
+    pub fn get_role(&self) -> Role {
+        if let Some(player) = &self.player {
+            return player.role;
+        }
+        Role::Innocent
+    }
 }

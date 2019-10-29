@@ -114,7 +114,14 @@ where
             let mut good_games = vec![];
             for mut game in games.drain(..) {
                 game.run_game();
-                if game.over() {
+                if game.error() {
+                    for mut player in game.player_list_mut().drain(..) {
+                        if let ConnectionStatus::Error = player.check_connections() {
+                            continue;
+                        }
+                        let _ = out_players.send(player);
+                    }
+                } else if game.over() {
                     for mut player in game.player_list_mut().drain(..) {
                         if let ConnectionStatus::Error = player.check_connections() {
                             continue;
@@ -136,6 +143,7 @@ where
 {
     fn new(players: usize) -> Self;
     fn run_game(&mut self);
+    fn error(&self) -> bool;
     fn over(&self) -> bool;
     fn player_list(&self) -> &Vec<ConnectedPlayer<P>>;
     fn player_list_mut(&mut self) -> &mut Vec<ConnectedPlayer<P>>;
