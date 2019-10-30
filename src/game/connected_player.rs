@@ -1,14 +1,11 @@
 use std::io::Read;
 use std::io::Write;
-use std::marker::PhantomData;
 use std::marker::Send;
-use std::net::SocketAddr;
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::channel;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::thread::JoinHandle;
-use websocket::server;
 
 pub struct ConnectedPlayer<P>
 where
@@ -77,7 +74,6 @@ where
                         Ok(stream) => {
                             self.stream = Some(stream);
                             self.socket = SocketStatus::Connected;
-                            println!("Connected!");
                         }
                         Err(_) => {
                             self.socket = SocketStatus::ConnectionError;
@@ -99,7 +95,6 @@ where
                 return ConnectionStatus::NotConnected;
             }
             SocketStatus::ConnectionError | SocketStatus::Hold => {
-                println!("Error on socket!");
                 if let Some(stream) = &self.stream {
                     let _ = stream.shutdown(std::net::Shutdown::Both);
                     self.stream = None;

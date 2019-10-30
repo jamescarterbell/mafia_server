@@ -8,7 +8,7 @@ use std::marker::Send;
 use std::sync::mpsc::*;
 use std::thread::JoinHandle;
 
-pub fn new_connection<P>(player_channel: &std::sync::mpsc::Sender<ConnectedPlayer<P>>) -> String
+pub fn new_connection<P>(player_channel: std::sync::mpsc::Sender<ConnectedPlayer<P>>) -> String
 where
     P: Player + Send + 'static,
 {
@@ -41,7 +41,7 @@ where
     ) -> rocket::Outcome<rocket::Response<'r>, rocket::http::Status, rocket::Data> {
         rocket::Outcome::Success({
             let mut res = rocket::Response::new();
-            res.set_sized_body(Cursor::new(new_connection(&self.0)));
+            res.set_sized_body(Cursor::new(new_connection(self.0.clone())));
             res
         })
     }
@@ -80,6 +80,7 @@ where
                         let players = lobby.player_list_mut();
                         players.push(player);
                         if players.len() >= lobby.max_players() as usize {
+                            println!("Game sent!");
                             let _ = out.send(lobby);
                             game = None;
                         } else {
@@ -87,6 +88,7 @@ where
                         }
                     }
                     None => {
+                        println!("New game made!");
                         let mut lobby = G::new(8);
                         lobby.player_list_mut().push(player);
                         game = Some(lobby);
