@@ -73,6 +73,7 @@ impl Game<MafiaPlayer> for Mafia {
     }
 
     fn run_game(&mut self) {
+        let max_players = self.max_players();
         match self.phase {
             Phase::Start => {
                 // Check if all players are connected
@@ -97,14 +98,16 @@ impl Game<MafiaPlayer> for Mafia {
                         role: roles.pop().unwrap(),
                         status: Status::Alive,
                         id: i as u8,
-                        guesses: vec![0; 8],
+                        guesses: vec![0; max_players],
                     });
 
                     let state = match &player.player {
                         Some(actual_player) => actual_player.get_state(),
                         None => "\n".to_string(),
                     };
-                    if let Err(_) = player.send_state(format!("{}, {}", "Start", state)) {
+                    if let Err(_) =
+                        player.send_state(format!("{}, {}, {}", "Start", state, max_players))
+                    {
                         println!("Error in Start, closing game!");
                         self.phase = Phase::End;
                         return;
@@ -145,7 +148,7 @@ impl Game<MafiaPlayer> for Mafia {
                 }
 
                 // Get input from detective
-                let mut buf: Vec<u8> = vec![0; 8];
+                let mut buf: Vec<u8> = vec![0; max_players];
                 if let Some(player) = &detective {
                     if let Err(_) = &players.get_mut(*player).unwrap().read_input(&mut buf) {
                         println!("Error in Detect, closing game!");
@@ -205,7 +208,7 @@ impl Game<MafiaPlayer> for Mafia {
                     if let Status::Dead = player.get_status() {
                         continue;
                     }
-                    let mut buf: Vec<u8> = vec![0; 8];
+                    let mut buf: Vec<u8> = vec![0; max_players];
                     if let Err(_) = player.read_input(&mut buf) {
                         println!("Error in PreVote, closing game!");
                         self.phase = Phase::End;
@@ -245,12 +248,12 @@ impl Game<MafiaPlayer> for Mafia {
                 }
 
                 // Collected the votes
-                let mut votes: Vec<usize> = vec![0; 8];
+                let mut votes: Vec<usize> = vec![0; max_players];
                 for player in players.iter_mut() {
                     if let Status::Dead = player.get_status() {
                         continue;
                     }
-                    let mut buf: Vec<u8> = vec![0; 8];
+                    let mut buf: Vec<u8> = vec![0; max_players];
                     if let Err(_) = player.read_input(&mut buf) {
                         println!("Error in Vote, closing game!");
                         self.phase = Phase::End;
@@ -329,7 +332,7 @@ impl Game<MafiaPlayer> for Mafia {
                     if let Role::Detective | Role::Innocent = player.get_role() {
                         continue;
                     }
-                    let mut buf: Vec<u8> = vec![0; 8];
+                    let mut buf: Vec<u8> = vec![0; max_players];
                     if let Err(_) = player.read_input(&mut buf) {
                         println!("Error in PreKill, closing game!");
                         self.phase = Phase::End;
@@ -372,7 +375,7 @@ impl Game<MafiaPlayer> for Mafia {
                 }
 
                 // Collected the votes
-                let mut votes: Vec<usize> = vec![0; 8];
+                let mut votes: Vec<usize> = vec![0; max_players];
                 for player in players.iter_mut() {
                     if let Status::Dead = player.get_status() {
                         continue;
@@ -380,7 +383,7 @@ impl Game<MafiaPlayer> for Mafia {
                     if let Role::Detective | Role::Innocent = player.get_role() {
                         continue;
                     }
-                    let mut buf: Vec<u8> = vec![0; 8];
+                    let mut buf: Vec<u8> = vec![0; max_players];
                     if let Err(_) = player.read_input(&mut buf) {
                         println!("Error in Kill, closing game!");
                         self.phase = Phase::End;
