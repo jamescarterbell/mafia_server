@@ -2,7 +2,7 @@ import requests
 import socket
 import asyncio
 from random import randint
-#from DQN import DQNAgent
+# from DQN import DQNAgent
 
 
 class Bot:
@@ -31,6 +31,7 @@ class Bot:
             port = requests.get("http://localhost:8000/new_connection")
             s = socket.create_connection(("localhost", int(port.text)))
             while(True):
+                message = ""
                 try:
                     # Read in the length of the message, then the message itself:
                     length = int.from_bytes(
@@ -39,34 +40,40 @@ class Bot:
                     if length == 0:
                         continue
 
-                    # Split the message into its principal components, then decide which function to call.
-                    message = message.replace(" ", "").split(",")
-
-                    if message[0] == "Start":
-                        message_broken = list()
-                        for piece in message:
-                            parts = piece.split(":")
-                            message_broken.extend(parts)
-                        self.start(
-                            message_broken[2], message_broken[4], message_broken[6], message_broken[7])
-
-                    elif message[0] == "End":
-                        self.end(self.create_ending_dict(message[1:]))
-                        break
-                    else:
-                        output = self.action(self.create_action_dict(message))
-
-                        message = ""
-                        for num in output:
-                            message += str(num) + ","
-                        message = message.encode("utf-8")
-                        length = len(message).to_bytes(
-                            8, byteorder='big', signed=False)
-
-                        s.send(length)
-                        s.send(message)
                 except:
                     break
+
+                    # Split the message into its principal components, then decide which function to call.
+                message = message.replace(" ", "").split(",")
+
+                if message[0] == "Start":
+                    message_broken = list()
+                    for piece in message:
+                        parts = piece.split(":")
+                        message_broken.extend(parts)
+                    self.start(
+                        message_broken[2], message_broken[4], message_broken[6], message_broken[7])
+
+                elif message[0] == "End":
+                    self.end(self.create_ending_dict(message[1:]))
+                    break
+                elif message[0] == "Info":
+                    self.info(self.create_info_tuple(message[1:]))
+                elif message[0] == "Action":
+                    output = self.action(self.create_action_dict(message[1:]))
+
+                    message = ""
+                    for num in output:
+                        message += str(num) + ","
+                    message = message.encode("utf-8")
+                    length = len(message).to_bytes(
+                        8, byteorder='big', signed=False)
+
+                    try:
+                        s.send(length)
+                        s.send(message)
+                    except:
+                        break
 
     # This will initialize some game logic that the player can keep track of
     def start(self, id: str, role: str, status: str, num_players: int):
@@ -87,11 +94,13 @@ class Bot:
             broken_pair = pair.split(":")
             if broken_pair[0] == "Player":
                 last_player = int(broken_pair[1])
-            elif last_player not in dictionary:
-                dictionary[last_player] = broken_pair[1]
-            else:
+
+            elif broken_pair[0] == "Role":
+                dictionary[last_player] = self.roles[broken_pair[1]]
+
+            elif broken_pair[0] == "Status":
                 dictionary[last_player] = (
-                    dictionary[last_player], broken_pair[1])
+                    dictionary[last_player], self.statuses[broken_pair[1]])
         return dictionary
 
     # This will do stuff during the game, it must return a list
@@ -100,7 +109,7 @@ class Bot:
         num = randint(0, self.num_players)
         output = list()
         for i in range(0, self.num_players):
-            output.append(1 if num == i else 0)
+            output.append(1 if num == i else -1)
         return output
 
     def create_action_dict(self, message: list) -> dict:
@@ -111,9 +120,10 @@ class Bot:
             broken_pair = pair.split(":")
             if broken_pair[0] == "Status" and first_status:
                 last_player += 1
-                dictionary[last_player] = (broken_pair[1], list())
+                dictionary[last_player] = (
+                    self.statuses[broken_pair[1]], list())
             elif len(broken_pair) == 1:
-                dictionary[last_player][1].append(int(broken_pair[0]))
+                dictionary[last_player][1].append(float(broken_pair[0]))
             else:
                 if broken_pair[0] == "Status":
                     first_status = True
@@ -124,7 +134,18 @@ class Bot:
 
                 elif broken_pair[0] == "Phase":
                     dictionary[broken_pair[0]] = self.phases[broken_pair[1]]
+
+                elif broken_pair[0] == "Role":
+                    dictionary[broken_pair[0]] = self.roles[broken_pair[1]]
+
+                elif broken_pair[0] == "Player":
+                    last_player = int(broken_pair[1])
                 else:
                     dictionary[broken_pair[0]] = broken_pair[1]
-        print(dictionary)
         return dictionary
+
+    def info(self, info_info: tuple):
+        print("Info stuff")
+
+    def create_info_tuple(self, message: list) -> tuple:
+        return (message[0], message[1], message[2])
