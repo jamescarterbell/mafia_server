@@ -23,12 +23,11 @@ class Bot:
         self.times = times
 
     def run_bot_join(self):
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(self.run_bot())
+        self.run_bot()
 
     def run_bot(self):
-        for i in range(0, self.times):
-            port = requests.get("http://localhost:8000/new_connection")
+        for i in range(0, self.times, 1):
+            port = requests.get("http://localhost:8001/new_connection")
             s = socket.create_connection(("localhost", int(port.text)))
             while(True):
                 message = ""
@@ -81,11 +80,10 @@ class Bot:
         self.role = self.roles[role]
         self.status = self.statuses[status]
         self.num_players = int(num_players)
-        print("Started")
 
     # This will do stuff with ending_info, use this for trianing purposes
     def end(self, ending_info: dict):
-        print("Ended")
+        pass
 
     def create_ending_dict(self, message: list) -> dict:
         dictionary = {}
@@ -114,6 +112,7 @@ class Bot:
 
     def create_action_dict(self, message: list) -> dict:
         dictionary = {}
+        dictionary["Player"] = int(self.id)
         last_player = -1
         first_status = False
         for pair in message:
@@ -138,14 +137,24 @@ class Bot:
                 elif broken_pair[0] == "Role":
                     dictionary[broken_pair[0]] = self.roles[broken_pair[1]]
 
-                elif broken_pair[0] == "Player":
-                    last_player = int(broken_pair[1])
                 else:
                     dictionary[broken_pair[0]] = broken_pair[1]
         return dictionary
 
     def info(self, info_info: tuple):
-        print("Info stuff")
+        pass
 
     def create_info_tuple(self, message: list) -> tuple:
         return (message[0], message[1], message[2])
+
+
+class Reward():
+
+    # Calculate the reward from the given action,
+    # and the max reward of the following state
+    '''
+    (state_info, action_taken)
+    '''
+
+    def get_reward(self, state_action_pair: tuple):
+        pass
