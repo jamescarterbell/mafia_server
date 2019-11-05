@@ -4,6 +4,7 @@ from threading import Lock
 import numpy as np
 import time
 import queue
+import random
 
 
 class QReward(Reward):
@@ -21,7 +22,7 @@ class QReward(Reward):
     def get_reward(self, state: list, hidden_info, future_reward: list, num_players: int, res=None, num=0) -> list():
         maxi = future_reward[0]
         for q in future_reward:
-            q *= self.gamma
+            q = q * self.gamma
             if q > maxi:
                 maxi = q
         reward = list()
@@ -32,7 +33,7 @@ class QReward(Reward):
             reward_calc += 1 if state[1] == 2 and hidden_info[i][0] < 2 else -1
             reward_calc += 1 if state[1] != 2 and hidden_info[i][0] == 2 else 0
             if num in res:
-                reward_calc += 1 if res[num][0] == i else 0
+                reward_calc += 2 if res[num][0] == i else 0
             maxi
 
             reward.append(reward_calc)
@@ -89,9 +90,24 @@ class DQNAgent(Bot):
             else:
                 model_input.extend([0 for k in range(0, self.num_players)])
 
-        model_input = np.array(model_input).reshape(1, -1)
-        output = self.model.predict(model_input)
-        self.state_action_pairs.append((model_input[0], output[0]))
+        model_inputs = list()
+        model_inputs.append(model_input)
+
+        last_check = 0
+        while len(model_inputs) < 10:
+            last_check += 1
+            leng = len(self.state_action_pairs)
+            if last_check <= leng:
+                model_inputs.append(
+                    self.state_action_pairs[leng - last_check][0])
+            else:
+                model_inputs.append([-1 for i in range(0, 85)])
+
+        into_model = np.array(model_inputs).reshape(1, 85, -1)
+
+        output = self.model.predict(into_model)
+
+        self.state_action_pairs.append((model_input, model_inputs, output[0]))
         return output[0]
 
     # Take in ending info, use this for training purposes
@@ -107,10 +123,27 @@ class DQNAgent(Bot):
         if ending_info[self.id][1] == 1:
             self.survived += 1
         print(self.survived / self.game)
-        for i in range(0, len(self.state_action_pairs)-1):
-            sarf.append((self.state_action_pairs[i][0],
-                         self.reward.get_reward(
-                        self.state_action_pairs[i][0], ending_info, self.state_action_pairs[i + 1][1], self.num_players, self.result, i)))
+        if len(self.state_action_pairs) < 4:
+            pass
+        for i in reversed(range(0, len(self.state_action_pairs)-1)):
+            if i == len(self.state_action_pairs) - 2:
+                sarf.append((self.state_action_pairs[i][1],
+                             self.reward.get_reward(
+                            self.state_action_pairs[i][0],
+                            ending_info,
+                            self.state_action_pairs[i + 1][2],
+                            self.num_players,
+                            self.result,
+                            i)))
+            else:
+                sarf.append((self.state_action_pairs[i][1],
+                             self.reward.get_reward(
+                            self.state_action_pairs[i][0],
+                            ending_info,
+                            sarf[-1][1][0],
+                            self.num_players,
+                            self.result,
+                            i)))
         self.model.train(sarf)
 
     # Take in info_info, use to store responses from votes
@@ -134,7 +167,10 @@ class Trainer():
 
     def predict(self, input_data):
         self.in_use.acquire()
-        output = self.model.predict(input_data)
+        try:
+            output = self.model.predict(input_data)
+        except ValueError as e:
+            print(e)
         self.in_use.release()
         return output
 
@@ -144,14 +180,20 @@ class Trainer():
         try:
             input_data = list()
             output_data = list()
-            for arr in info[:, 0]:
-                input_data.append(arr.reshape(-1, 1))
-            for arr in info[:, 1]:
-                output_data.append(arr.reshape(-1, 1))
-            input_data = np.array(input_data)[:, :, 0]
+            for i in random.sample(range(0, len(info[:, 0])), random.randint(0, len(info[:, 0]))):
+                input_data.append(info[i, 0])
+                output_data.append(info[i, 1].reshape(-1, 1))
+
+            combined = list(zip(input_data, output_data))
+            random.shuffle(combined)
+            input_data[:], output_data[:] = zip(*combined)
+
+            input_data = np.array(input_data).reshape(-1, 85, 10)
             output_data = np.array(output_data)[:, :, 0]
             self.model.fit(input_data,
                            output_data)
         except ValueError as e:
             print(e)
+        except:
+            pass
         self.in_use.release()
