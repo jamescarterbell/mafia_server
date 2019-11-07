@@ -63,7 +63,6 @@ impl Mafia {
                 continue;
             };
             let test = std::str::from_utf8(&buf).unwrap().to_string();
-            println!("{}", test);
             let out = read_input(test);
             if out[0] == 0.0 {
                 player.socket = SocketStatus::ConnectionError;
