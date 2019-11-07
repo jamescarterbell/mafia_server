@@ -22,10 +22,12 @@ class QReward(Reward):
     def get_reward(self, state: list, hidden_info, future_reward: list, num_players: int, res=None, num=0) -> list():
         maxi = future_reward[0]
         for q in future_reward:
-            q = q * self.gamma
             if q > maxi:
                 maxi = q
         reward = list()
+
+        can_win, hunt = self.check_win(
+            state, num_players, hidden_info, state[1])
 
         # Calculate the reward value for each vote
         for i in range(0, num_players):
@@ -34,10 +36,37 @@ class QReward(Reward):
             reward_calc += 1 if state[1] != 2 and hidden_info[i][0] == 2 else 0
             if num in res:
                 reward_calc += 2 if res[num][0] == i else 0
-            maxi
+
+            if can_win:
+                if i in hunt:
+                    reward_calc += 5
+            else:
+                reward_calc += self.gamma * maxi
 
             reward.append(reward_calc)
         return np.array(reward).reshape(1, -1)
+
+    def check_win(self, state: list, num_players, hidden_info, player_role):
+        innocent_left = 0
+        innocent_members = list()
+        mafia_left = 0
+        mafia_members = list()
+        for i in range(0, num_players):
+            if state[5 + i * (num_players + 1)] == 1:
+                if hidden_info[i][0] == 2:
+                    mafia_left += 1
+                    mafia_members.append(i)
+                else:
+                    innocent_left += 1
+                    innocent_members.append(i)
+
+        if player_role < 2:
+            if mafia_left == 1:
+                return (True, mafia_members)
+        else:
+            if innocent_left - 1 == mafia_left:
+                return (True, innocent_members)
+        return (False, None)
 
 
 class DQNAgent(Bot):

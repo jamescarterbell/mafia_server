@@ -4,7 +4,6 @@
 extern crate rocket;
 
 mod game;
-mod mafia;
 
 use game::{ConnectedPlayer, ConnectionStatus, Game, Player, SocketStatus};
 use rand::seq::SliceRandom;
