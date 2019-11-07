@@ -36,12 +36,15 @@ impl Mafia {
     }
 
     fn finished_game(&mut self) {
+        // Create message containing hidden info
         let mut state = "End".to_string();
         for player in self.players.iter_mut() {
             if let Some(actual_player) = &player.player {
                 state = format!("{}, {}", state, actual_player.get_state());
             };
         }
+
+        // Tell all players hidden info
         println!("{}", state);
         let players = &mut self.players;
         for player in players.iter_mut() {
@@ -49,10 +52,21 @@ impl Mafia {
                 println!("Error ending game, closing game!");
                 player.socket = SocketStatus::ConnectionError;
             };
-            if let Some(stream) = &mut player.stream {
-                if let Err(_) = stream.shutdown(Shutdown::Both) {
-                    player.socket = SocketStatus::ConnectionError;
-                };
+        }
+
+        // See if players want to quit the game
+        for player in players.iter_mut() {
+            let mut buf: Vec<u8> = vec![0; self.max_players];
+            if let Err(_) = player.read_input(&mut buf) {
+                println!("Error in End");
+                player.socket = SocketStatus::ConnectionError;
+                continue;
+            };
+            let test = std::str::from_utf8(&buf).unwrap().to_string();
+            println!("{}", test);
+            let out = read_input(test);
+            if out[0] == 0.0 {
+                player.socket = SocketStatus::ConnectionError;
             }
         }
     }

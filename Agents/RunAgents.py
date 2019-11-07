@@ -45,9 +45,9 @@ while(True):
 
     for i in range(0, 7):
         pool.submit(
-            DQNAgent(50, reward, model=trainer).run_bot_join)
+            DQNAgent(5, reward, model=trainer).run_bot_join)
 
-    DQNAgent(50, reward, model=trainer).run_bot_join()
+    DQNAgent(5, reward, model=trainer).run_bot_join()
     pool.shutdown(wait=True)
     print("Shut down!")
     model.save('trained_model.h5')

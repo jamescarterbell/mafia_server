@@ -26,9 +26,9 @@ class Bot:
         self.run_bot()
 
     def run_bot(self):
-        for i in range(0, self.times, 1):
-            port = requests.get("http://localhost:8001/new_connection")
-            s = socket.create_connection(("localhost", int(port.text)))
+        port = requests.get("http://localhost:8001/new_connection")
+        s = socket.create_connection(("localhost", int(port.text)))
+        for i in range(0, self.times):
             while(True):
                 message = ""
                 try:
@@ -54,8 +54,23 @@ class Bot:
                         message_broken[2], message_broken[4], message_broken[6], message_broken[7])
 
                 elif message[0] == "End":
+                    out = 1
+                    if i == self.times - 1:
+                        out = 0
+
+                    out_message = str(out)
+                    out_message = out_message.encode("utf-8")
+                    length = len(out_message).to_bytes(
+                        8, byteorder='big', signed=False)
+                    try:
+                        s.send(length)
+                        s.send(out_message)
+                    except:
+                        break
+
                     self.end(self.create_ending_dict(message[1:]))
                     break
+
                 elif message[0] == "Info":
                     self.info(self.create_info_tuple(message[1:]))
                 elif message[0] == "Action":
