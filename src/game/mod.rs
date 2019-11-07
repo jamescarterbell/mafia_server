@@ -3,6 +3,7 @@ pub mod connected_player;
 pub use connected_player::*;
 use rocket::http::Method;
 use rocket::*;
+use std::collections::VecDeque;
 use std::io::Cursor;
 use std::marker::Send;
 use std::sync::mpsc::*;
@@ -54,17 +55,21 @@ where
     P: Player + Send + Clone + 'static,
     G: Game<P> + Send + 'static,
 {
-    let (send_games, recieve_games) = channel::<G>();
     let (send_players, recieve_players) = channel::<ConnectedPlayer<P>>();
+    let mut game_senders = VecDeque::new();
+    for i in 0..8 {
+        let (send_games, recieve_games) = channel::<G>();
+        game_senders.push_back(send_games);
+        run_active_games::<P, G>(recieve_games, send_players.clone());
+    }
 
-    check_games::<P, G>(send_games, recieve_players);
-    run_active_games::<P, G>(recieve_games, send_players.clone());
+    check_games::<P, G>(game_senders, recieve_players);
     let route = Route::new(Method::Get, "/new_connection", Connector(send_players));
     rocket::ignite().mount("/", vec![route]).launch();
 }
 
 fn check_games<P, G>(
-    out: std::sync::mpsc::Sender<G>,
+    mut game_out: VecDeque<std::sync::mpsc::Sender<G>>,
     players: Receiver<ConnectedPlayer<P>>,
 ) -> JoinHandle<()>
 where
@@ -81,7 +86,9 @@ where
                         players.push(player);
                         if players.len() >= lobby.max_players() as usize {
                             println!("Game sent!");
+                            let mut out = game_out.pop_front().unwrap();
                             let _ = out.send(lobby);
+                            game_out.push_back(out);
                             game = None;
                         } else {
                             game = Some(lobby);

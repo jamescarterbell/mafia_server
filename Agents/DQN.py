@@ -205,24 +205,25 @@ class Trainer():
 
     def train(self, info):
         info = np.array(info)
-        self.in_use.acquire()
-        try:
-            input_data = list()
-            output_data = list()
-            for i in random.sample(range(0, len(info[:, 0])), random.randint(0, len(info[:, 0]))):
-                input_data.append(info[i, 0])
-                output_data.append(info[i, 1].reshape(-1, 1))
+        input_data = list()
+        output_data = list()
+        for i in random.sample(range(0, len(info[:, 0])), random.randint(0, len(info[:, 0]))):
+            input_data.append(info[i, 0])
+            output_data.append(info[i, 1].reshape(-1, 1))
 
+        if len(input_data) > 0:
             combined = list(zip(input_data, output_data))
             random.shuffle(combined)
             input_data[:], output_data[:] = zip(*combined)
 
             input_data = np.array(input_data).reshape(-1, 85, 10)
             output_data = np.array(output_data)[:, :, 0]
-            self.model.fit(input_data,
-                           output_data)
-        except ValueError as e:
-            print(e)
-        except:
-            pass
-        self.in_use.release()
+            self.in_use.acquire()
+            try:
+                self.model.fit(input_data,
+                               output_data, epochs=10)
+            except ValueError as e:
+                print(e)
+            except:
+                pass
+            self.in_use.release()

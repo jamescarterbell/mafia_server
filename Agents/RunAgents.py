@@ -43,7 +43,7 @@ while(True):
 
     pool = ThreadPoolExecutor(max_workers=63)
 
-    for i in range(0, 63):
+    for i in range(0, 125):
         pool.submit(
             DQNAgent(50, reward, model=trainer).run_bot_join)
 
