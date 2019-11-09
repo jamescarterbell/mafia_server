@@ -33,9 +33,7 @@ class QReward(Reward):
         for i in range(0, num_players):
             reward_calc = -1 if state[5 + i * (num_players + 1)] == 0 else 0
             reward_calc += 1 if state[1] == 2 and hidden_info[i][0] < 2 else -1
-            reward_calc += 1 if state[1] != 2 and hidden_info[i][0] == 2 else 0
-            if num in res:
-                reward_calc += 2 if res[num][0] == i else 0
+            reward_calc += 1 if state[1] != 2 and hidden_info[i][0] == 2 else -1
 
             if can_win:
                 if i in hunt:

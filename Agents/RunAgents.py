@@ -28,7 +28,7 @@ while(True):
         den_2 = Dense(32, activation='sigmoid')(den_1)
         den_3 = Dense(16, activation='sigmoid')(den_2)
         den_4 = Dense(16, activation='sigmoid')(den_3)
-        predictions = Dense(8, activation="elu")(den_4)
+        predictions = Dense(8, activation="linear")(den_4)
 
         model = Model(inputs=inputs, outputs=predictions)
         model.compile(loss='mean_squared_error', optimizer='sgd')
@@ -41,13 +41,13 @@ while(True):
 
     trainer = Trainer(model)
 
-    pool = ThreadPoolExecutor(max_workers=63)
+    pool = ThreadPoolExecutor(max_workers=255)
 
-    for i in range(0, 125):
+    for i in range(0, 255):
         pool.submit(
-            DQNAgent(50, reward, model=trainer).run_bot_join)
+            DQNAgent(20, reward, model=trainer).run_bot_join)
 
-    DQNAgent(50, reward, model=trainer).run_bot_join()
+    DQNAgent(20, reward, model=trainer).run_bot_join()
     pool.shutdown(wait=True)
     print("Shut down!")
     model.save('trained_model.h5')
