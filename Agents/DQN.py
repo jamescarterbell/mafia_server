@@ -33,7 +33,7 @@ class QReward(Reward):
         for i in range(0, num_players):
             reward_calc = -1 if state[5 + i * (num_players + 1)] == 0 else 0
             reward_calc += 1 if state[1] == 2 and hidden_info[i][0] < 2 else -1
-            reward_calc += 1 if state[1] != 2 and hidden_info[i][0] == 2 else -1
+            reward_calc += 2 if state[1] != 2 and hidden_info[i][0] == 2 else -1
 
             if can_win:
                 if i in hunt:
@@ -69,12 +69,17 @@ class QReward(Reward):
 
 class DQNAgent(Bot):
 
-    def __init__(self, times: int, reward: Reward, model):
+    def __init__(self, times: int, reward: Reward, model, epsilon, document=False):
         super().__init__(times)
         self.reward = reward
         self.model = model
         self.game = 0.0
         self.survived = 0.0
+        self.doc = document
+        self.eps = epsilon
+        if self.doc:
+            self.mafia_wins = 0
+            self.detective_kills = 0
 
     # Take in the action info, plug into NN to get action,
     # Save action input, and output for future reward calculations.
@@ -99,6 +104,7 @@ class DQNAgent(Bot):
         self.result = {}
 
     def action(self, action_info: dict) -> list:
+        r = random.random()
         model_input = list()
         model_input.append(int(action_info['Player']))
         model_input.append(action_info['Role'])
@@ -132,7 +138,14 @@ class DQNAgent(Bot):
 
         into_model = np.array(model_inputs).reshape(1, 85, -1)
 
-        output = self.model.predict(into_model)
+        if r < self.eps:
+            output = self.model.predict(into_model)
+        else:
+            num = randint(0, self.num_players)
+            output = list()
+            for i in range(0, self.num_players):
+                output.append(1 if num == i else -1)
+            output = [output]
 
         self.state_action_pairs.append((model_input, model_inputs, output[0]))
         return output[0]
@@ -146,6 +159,16 @@ class DQNAgent(Bot):
     '''
 
     def end(self, ending_info: dict):
+        if self.doc:
+            mafia_left = 2
+            for i in ending_info:
+                if ending_info[i][1] == 0:
+                    if ending_info[i][0] == 1:
+                        self.detective_kills += 1
+                    if ending_info[i][0] == 2:
+                        mafia_left -= 1
+            if mafia_left > 0:
+                self.mafia_wins += 1
         sarf = list()
         if ending_info[self.id][1] == 1:
             self.survived += 1
@@ -205,7 +228,8 @@ class Trainer():
         info = np.array(info)
         input_data = list()
         output_data = list()
-        for i in random.sample(range(0, len(info[:, 0])), random.randint(0, len(info[:, 0]))):
+        # for i in random.sample(range(0, len(info[:, 0])), random.randint(0, len(info[:, 0]))):
+        for i in range(0, len(info[:, 0])):
             input_data.append(info[i, 0])
             output_data.append(info[i, 1].reshape(-1, 1))
 
@@ -219,7 +243,7 @@ class Trainer():
             self.in_use.acquire()
             try:
                 self.model.fit(input_data,
-                               output_data, epochs=10)
+                               output_data, batch_size=4)
             except ValueError as e:
                 print(e)
             except:

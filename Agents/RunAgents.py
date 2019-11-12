@@ -41,13 +41,18 @@ while(True):
 
     trainer = Trainer(model)
 
-    pool = ThreadPoolExecutor(max_workers=255)
+    pool = ThreadPoolExecutor(max_workers=511)
 
-    for i in range(0, 255):
+    for i in range(0, 511):
         pool.submit(
-            DQNAgent(20, reward, model=trainer).run_bot_join)
+            DQNAgent(5, reward, model=trainer, epsilon=.75).run_bot_join)
 
-    DQNAgent(20, reward, model=trainer).run_bot_join()
+    doc_bot = DQNAgent(5, reward, model=trainer, epsilon=.75, document=True)
+    doc_bot.run_bot_join()
     pool.shutdown(wait=True)
+
+    with open("train_data.txt", "a") as f:
+        f.write("{}, {}\n".format(doc_bot.mafia_wins, doc_bot.detective_kills))
+
     print("Shut down!")
     model.save('trained_model.h5')

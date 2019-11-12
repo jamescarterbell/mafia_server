@@ -64,7 +64,7 @@ impl Mafia {
             };
             let test = std::str::from_utf8(&buf).unwrap().to_string();
             let out = read_input(test);
-            if out[0] == 0.0 {
+            if out.len() == 0 || out[0] == 0.0 {
                 player.socket = SocketStatus::ConnectionError;
             }
         }
@@ -328,7 +328,7 @@ impl Game<MafiaPlayer> for Mafia {
                     }
                 }
 
-                if self.mafia_left == 0 || self.mafia_left == self.innocent_left {
+                if self.mafia_left == 0 || self.mafia_left >= self.innocent_left {
                     self.finished_game();
                     self.phase = Phase::End;
                     return;
@@ -483,7 +483,8 @@ impl Game<MafiaPlayer> for Mafia {
                     }
                 }
 
-                if self.mafia_left == 0 || self.mafia_left == self.innocent_left || self.day == 10 {
+                if self.mafia_left == 0 || self.mafia_left >= self.innocent_left || self.day >= 100
+                {
                     self.finished_game();
                     self.phase = Phase::End;
                     return;
