@@ -105,23 +105,23 @@ where
         return ConnectionStatus::Error;
     }
 
-    pub fn send_state(&mut self, state: String) -> Result<(), ()> {
+    pub fn send_state(&mut self, state: String) -> std::io::Result<()> {
         //create json
         if let Some(stream) = &mut self.stream {
             let buffer = state.as_bytes();
             let length = buffer.len();
-            let _ = stream.write_all(&length.to_be_bytes());
-            let _ = stream.write_all(buffer);
+            stream.write_all(&length.to_be_bytes())?;
+            stream.write_all(buffer)?;
             return Ok(());
         }
-        Err(())
+        Ok(())
     }
 
-    pub fn read_input(&mut self, buf: &mut Vec<u8>) -> Result<(), String> {
+    pub fn read_input(&mut self, buf: &mut Vec<u8>) -> std::io::Result<()> {
         if let Some(stream) = &mut self.stream {
-            let _ = stream.read_exact(buf);
+            stream.read_exact(buf)?;
             *buf = vec![0; byte_be_to_usize(&buf)];
-            let _ = stream.read_exact(buf);
+            stream.read_exact(buf)?;
         }
         Ok(())
     }
@@ -130,6 +130,8 @@ where
 fn listen(stream: TcpListener, send: Sender<bool>) -> std::result::Result<TcpStream, ()> {
     if let Result::Ok((out_stream, _addr)) = stream.accept() {
         let _ = send.send(true);
+        let _ = out_stream.set_read_timeout(Some(std::time::Duration::new(10, 0)));
+        let _ = out_stream.set_write_timeout(Some(std::time::Duration::new(10, 0)));
         return std::result::Result::Ok(out_stream);
     }
     std::result::Result::Err(())

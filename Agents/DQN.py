@@ -31,7 +31,11 @@ class QReward(Reward):
 
         # Calculate the reward value for each vote
         for i in range(0, num_players):
-            reward_calc = -1 if state[5 + i * (num_players + 1)] == 0 else 0
+            reward_calc = 0
+            if state[5 + i * (num_players + 1)] == 0:
+                reward_calc -= 1
+                reward.append(reward_calc)
+                continue
             reward_calc += 1 if state[1] == 2 and hidden_info[i][0] < 2 else -1
             reward_calc += 2 if state[1] != 2 and hidden_info[i][0] == 2 else -1
 
@@ -80,6 +84,7 @@ class DQNAgent(Bot):
         if self.doc:
             self.mafia_wins = 0
             self.detective_kills = 0
+            self.avg_last_day = 0
 
     # Take in the action info, plug into NN to get action,
     # Save action input, and output for future reward calculations.
@@ -102,6 +107,7 @@ class DQNAgent(Bot):
         self.game += 1
         self.alive = True
         self.result = {}
+        self.last_day = 0
 
     def action(self, action_info: dict) -> list:
         r = random.random()
@@ -111,6 +117,7 @@ class DQNAgent(Bot):
         model_input.append(action_info['Status'])
         model_input.append(action_info['Phase'])
         model_input.append(action_info['Day'])
+        self.last_day = action_info['Day']
         for i in range(0, self.num_players):
             model_input.append(action_info[i][0])
             if i in self.known:
@@ -123,23 +130,17 @@ class DQNAgent(Bot):
             else:
                 model_input.extend([0 for k in range(0, self.num_players)])
 
-        model_inputs = list()
-        model_inputs.append(model_input)
-
-        last_check = 0
-        while len(model_inputs) < 10:
-            last_check += 1
-            leng = len(self.state_action_pairs)
-            if last_check <= leng:
-                model_inputs.append(
-                    self.state_action_pairs[leng - last_check][0])
-            else:
-                model_inputs.append([-1 for i in range(0, 85)])
-
-        into_model = np.array(model_inputs).reshape(1, 85, -1)
+        into_model = np.array(model_input).reshape(1, -1)
 
         if r < self.eps:
-            output = self.model.predict(into_model)
+            try:
+                output = self.model.predict(into_model)
+            except:
+                num = randint(0, self.num_players)
+                output = list()
+                for i in range(0, self.num_players):
+                    output.append(1 if num == i else -1)
+                output = [output]
         else:
             num = randint(0, self.num_players)
             output = list()
@@ -147,7 +148,7 @@ class DQNAgent(Bot):
                 output.append(1 if num == i else -1)
             output = [output]
 
-        self.state_action_pairs.append((model_input, model_inputs, output[0]))
+        self.state_action_pairs.append((model_input, output[0]))
         return output[0]
 
     # Take in ending info, use this for training purposes
@@ -169,6 +170,7 @@ class DQNAgent(Bot):
                         mafia_left -= 1
             if mafia_left > 0:
                 self.mafia_wins += 1
+            self.avg_last_day += self.last_day
         sarf = list()
         if ending_info[self.id][1] == 1:
             self.survived += 1
@@ -176,21 +178,12 @@ class DQNAgent(Bot):
         if len(self.state_action_pairs) < 4:
             pass
         for i in reversed(range(0, len(self.state_action_pairs)-1)):
-            if i == len(self.state_action_pairs) - 2:
-                sarf.append((self.state_action_pairs[i][1],
+            if i <= len(self.state_action_pairs) - 2:
+                sarf.append((self.state_action_pairs[i][0],
                              self.reward.get_reward(
                             self.state_action_pairs[i][0],
                             ending_info,
-                            self.state_action_pairs[i + 1][2],
-                            self.num_players,
-                            self.result,
-                            i)))
-            else:
-                sarf.append((self.state_action_pairs[i][1],
-                             self.reward.get_reward(
-                            self.state_action_pairs[i][0],
-                            ending_info,
-                            sarf[-1][1][0],
+                            self.state_action_pairs[i + 1][1],
                             self.num_players,
                             self.result,
                             i)))
@@ -211,14 +204,19 @@ class DQNAgent(Bot):
 
 class Trainer():
 
-    def __init__(self, model):
-        self.model = model
+    def __init__(self, predictor_model, train_model):
+        self.predictor_model = predictor_model
+        self.train_model = train_model
         self.in_use = Lock()
+        self.accuracy = list()
+        self.loss = list()
+        self.val_accuracy = list()
+        self.val_loss = list()
 
     def predict(self, input_data):
         self.in_use.acquire()
         try:
-            output = self.model.predict(input_data)
+            output = self.predictor_model.predict(input_data)
         except ValueError as e:
             print(e)
         self.in_use.release()
@@ -229,21 +227,25 @@ class Trainer():
         input_data = list()
         output_data = list()
         # for i in random.sample(range(0, len(info[:, 0])), random.randint(0, len(info[:, 0]))):
-        for i in range(0, len(info[:, 0])):
-            input_data.append(info[i, 0])
-            output_data.append(info[i, 1].reshape(-1, 1))
+        for i in range(0, len(info)):
+            input_data.append(np.array(info[i][0]).reshape(-1, 1))
+            output_data.append(info[i][1].reshape(-1, 1))
 
         if len(input_data) > 0:
             combined = list(zip(input_data, output_data))
             random.shuffle(combined)
             input_data[:], output_data[:] = zip(*combined)
 
-            input_data = np.array(input_data).reshape(-1, 85, 10)
+            input_data = np.array(input_data)[:, :, 0]
             output_data = np.array(output_data)[:, :, 0]
             self.in_use.acquire()
             try:
-                self.model.fit(input_data,
-                               output_data, batch_size=4)
+                history = self.train_model.fit(input_data,
+                               output_data, epochs=1, batch_size=4)
+                self.loss.extend(history.history['loss'])
+                self.val_loss.extend(history.history['val_loss'])
+                self.accuracy.extend(history.history['acc'])
+                self.val_accuracy.extend(history.history['val_acc'])
             except ValueError as e:
                 print(e)
             except:

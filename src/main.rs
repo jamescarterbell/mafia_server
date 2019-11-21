@@ -104,6 +104,9 @@ impl Game<MafiaPlayer> for Mafia {
                 let mut rng = rand::thread_rng();
                 roles.shuffle(&mut rng);
 
+                let mut mafia_members = Vec::<usize>::new();
+                let mut mafia_states = Vec::<String>::new();
+
                 for (i, mut player) in self.players.iter_mut().enumerate() {
                     player.player = Some(MafiaPlayer {
                         role: roles.pop().unwrap(),
@@ -116,14 +119,33 @@ impl Game<MafiaPlayer> for Mafia {
                         Some(actual_player) => actual_player.get_state(),
                         None => "\n".to_string(),
                     };
+
+                    if let Role::Mafia = player.player.as_ref().unwrap().role {
+                        mafia_members.push(i);
+                        mafia_states.push(state.clone());
+                    }
                     if let Err(_) =
                         player.send_state(format!("{}, {}, {}", "Start", state, max_players))
                     {
+                        player.socket = SocketStatus::ConnectionError;
                         println!("Error in Start, closing game!");
                         self.phase = Phase::End;
                         return;
                     };
                 }
+
+                for i in mafia_members.iter() {
+                    let player = &mut self.players[*i];
+                    for message in mafia_states.iter() {
+                        if let Err(_) = player.send_state(message.clone()) {
+                            player.socket = SocketStatus::ConnectionError;
+                            println!("Error in Start, closing game!");
+                            self.phase = Phase::End;
+                            return;
+                        }
+                    }
+                }
+
                 self.phase = Phase::Detect;
             }
 
@@ -141,6 +163,7 @@ impl Game<MafiaPlayer> for Mafia {
                             if let Role::Detective = actual_player.role {
                                 state = format!("Action, {}, {}", actual_player.get_state(), state);
                                 if let Err(_) = player.send_state(state) {
+                                    player.socket = SocketStatus::ConnectionError;
                                     println!("Error in Detect, closing game!");
                                     self.phase = Phase::End;
                                     return;
@@ -162,6 +185,7 @@ impl Game<MafiaPlayer> for Mafia {
                 let mut buf: Vec<u8> = vec![0; max_players];
                 if let Some(player) = &detective {
                     if let Err(_) = &players.get_mut(*player).unwrap().read_input(&mut buf) {
+                        players.get_mut(*player).unwrap().socket = SocketStatus::ConnectionError;
                         println!("Error in Detect, closing game!");
                         self.phase = Phase::End;
                         return;
@@ -183,6 +207,8 @@ impl Game<MafiaPlayer> for Mafia {
                     state = format!("Info, {}", state);
                     if let Some(player) = &mut detective {
                         if let Err(_) = &players.get_mut(*player).unwrap().send_state(state) {
+                            players.get_mut(*player).unwrap().socket =
+                                SocketStatus::ConnectionError;
                             println!("Error in Detect, closing game!");
                             self.phase = Phase::End;
                             return;
@@ -208,6 +234,7 @@ impl Game<MafiaPlayer> for Mafia {
                                 format!("Action, {}, {}", actual_player.get_state(), state);
                             if let Err(_) = player.send_state(local_state) {
                                 println!("Error in Prevote, closing game!");
+                                player.socket = SocketStatus::ConnectionError;
                                 self.phase = Phase::End;
                                 return;
                             };
@@ -224,6 +251,7 @@ impl Game<MafiaPlayer> for Mafia {
                     let mut buf: Vec<u8> = vec![0; max_players];
                     if let Err(_) = player.read_input(&mut buf) {
                         println!("Error in PreVote, closing game!");
+                        player.socket = SocketStatus::ConnectionError;
                         self.phase = Phase::End;
                         return;
                     };
@@ -252,6 +280,7 @@ impl Game<MafiaPlayer> for Mafia {
                             let local_state =
                                 format!("Action, {}, {}", actual_player.get_state(), state);
                             if let Err(_) = player.send_state(local_state) {
+                                player.socket = SocketStatus::ConnectionError;
                                 println!("Error in Vote, closing game!");
                                 self.phase = Phase::End;
                                 return;
@@ -269,6 +298,7 @@ impl Game<MafiaPlayer> for Mafia {
                     }
                     let mut buf: Vec<u8> = vec![0; max_players];
                     if let Err(_) = player.read_input(&mut buf) {
+                        player.socket = SocketStatus::ConnectionError;
                         println!("Error in Vote, closing game!");
                         self.phase = Phase::End;
                         return;
@@ -318,6 +348,7 @@ impl Game<MafiaPlayer> for Mafia {
                                 if let Err(_) =
                                     player.send_state(format!("Info, {}", state.clone()))
                                 {
+                                    player.socket = SocketStatus::ConnectionError;
                                     println!("Error in Vote, closing game!");
                                     self.phase = Phase::End;
                                     return;
@@ -355,6 +386,7 @@ impl Game<MafiaPlayer> for Mafia {
                             let local_state =
                                 format!("Action, {}, {}", actual_player.get_state(), state);
                             if let Err(_) = player.send_state(local_state) {
+                                player.socket = SocketStatus::ConnectionError;
                                 println!("Error in PreKill, closing game!");
                                 self.phase = Phase::End;
                                 return;
@@ -374,6 +406,7 @@ impl Game<MafiaPlayer> for Mafia {
                     }
                     let mut buf: Vec<u8> = vec![0; max_players];
                     if let Err(_) = player.read_input(&mut buf) {
+                        player.socket = SocketStatus::ConnectionError;
                         println!("Error in PreKill, closing game!");
                         self.phase = Phase::End;
                         return;
@@ -406,6 +439,7 @@ impl Game<MafiaPlayer> for Mafia {
                             let local_state =
                                 format!("Action, {}, {}", actual_player.get_state(), state);
                             if let Err(_) = player.send_state(local_state) {
+                                player.socket = SocketStatus::ConnectionError;
                                 println!("Error in Kill, closing game!");
                                 self.phase = Phase::End;
                                 return;
@@ -426,6 +460,7 @@ impl Game<MafiaPlayer> for Mafia {
                     }
                     let mut buf: Vec<u8> = vec![0; max_players];
                     if let Err(_) = player.read_input(&mut buf) {
+                        player.socket = SocketStatus::ConnectionError;
                         println!("Error in Kill, closing game!");
                         self.phase = Phase::End;
                         return;
@@ -473,6 +508,7 @@ impl Game<MafiaPlayer> for Mafia {
                                 if let Err(_) =
                                     player.send_state(format!("Info, {}", state.clone()))
                                 {
+                                    player.socket = SocketStatus::ConnectionError;
                                     println!("Error in Vote, closing game!");
                                     self.phase = Phase::End;
                                     return;
