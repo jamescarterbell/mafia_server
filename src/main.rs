@@ -69,6 +69,20 @@ impl Mafia {
             }
         }
     }
+
+    fn get_private_state(&self) -> String {
+        let mut state = format!("Phase: {}", self.phase);
+        state = format!("{}, Day: {}", state, self.day);
+        for player in self.players.iter() {
+            match &player.player {
+                Some(actual_player) => {
+                    state = format!("{}, {}", state, actual_player.get_private_state());
+                }
+                None => {}
+            };
+        }
+        state
+    }
 }
 
 impl Game<MafiaPlayer> for Mafia {
@@ -113,6 +127,7 @@ impl Game<MafiaPlayer> for Mafia {
                         status: Status::Alive,
                         id: i as u8,
                         guesses: vec![0.0; max_players],
+                        hid_guess: vec![0.0; max_players],
                     });
 
                     let state = match &player.player {
@@ -258,7 +273,8 @@ impl Game<MafiaPlayer> for Mafia {
                     let out = read_input(std::str::from_utf8(&buf).unwrap().to_string());
                     match &mut player.player {
                         Some(actual_player) => {
-                            actual_player.guesses = out;
+                            actual_player.guesses = out.clone();
+                            actual_player.hid_guess = out;
                         }
                         None => {}
                     };
@@ -312,7 +328,8 @@ impl Game<MafiaPlayer> for Mafia {
                         votes[max] += 1;
                         match &mut player.player {
                             Some(actual_player) => {
-                                actual_player.guesses = out;
+                                actual_player.guesses = out.clone();
+                                actual_player.hid_guess = out;
                             }
                             None => {}
                         };
@@ -368,7 +385,7 @@ impl Game<MafiaPlayer> for Mafia {
             }
 
             Phase::PreKill => {
-                let state = self.get_state();
+                let state = self.get_private_state();
                 let players = &mut self.players;
 
                 // Send all the mafia players the state of the game
@@ -414,7 +431,7 @@ impl Game<MafiaPlayer> for Mafia {
                     let out = read_input(std::str::from_utf8(&buf).unwrap().to_string());
                     match &mut player.player {
                         Some(actual_player) => {
-                            actual_player.guesses = out;
+                            actual_player.hid_guess = out;
                         }
                         None => {}
                     };
@@ -423,7 +440,7 @@ impl Game<MafiaPlayer> for Mafia {
             }
 
             Phase::Kill => {
-                let state = self.get_state();
+                let state = self.get_private_state();
                 let players = &mut self.players;
 
                 // Send all the mafia players the newest state
@@ -471,7 +488,7 @@ impl Game<MafiaPlayer> for Mafia {
                         votes[max] += 1;
                         match &mut player.player {
                             Some(actual_player) => {
-                                actual_player.guesses = out;
+                                actual_player.hid_guess = out;
                             }
                             None => {}
                         };
@@ -604,6 +621,7 @@ struct MafiaPlayer {
     status: Status,
     id: u8,
     guesses: Vec<f64>,
+    hid_guess: Vec<f64>,
 }
 
 #[derive(Clone, Copy)]
@@ -653,6 +671,14 @@ impl MafiaPlayer {
     fn get_public_state(&self) -> String {
         let mut state = format!("Status: {}", self.status);
         for guess in self.guesses.iter() {
+            state = format!("{}, {}", state, guess);
+        }
+        state
+    }
+
+    fn get_private_state(&self) -> String {
+        let mut state = format!("Status: {}", self.status);
+        for guess in self.hid_guess.iter() {
             state = format!("{}, {}", state, guess);
         }
         state
