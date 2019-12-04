@@ -21,6 +21,7 @@ class Bot:
                        "PreKill":   3,
                        "Kill":      4}
         self.times = times
+        self.timeout = 1000000000
 
     def run_bot_join(self):
         self.run_bot()
@@ -28,7 +29,10 @@ class Bot:
     def run_bot(self):
         port = requests.get("http://localhost:8001/new_connection")
         s = socket.create_connection(("localhost", int(port.text)))
-        for i in range(0, self.times):
+        i = 0
+        while i < self.times or self.times < 0:
+            i += 1
+            test_time = 0
             while(True):
                 message = ""
                 try:
@@ -37,6 +41,16 @@ class Bot:
                         s.recv(8), byteorder='big', signed=False)
                     message = s.recv(length).decode("utf-8")
                     if length == 0:
+                        test_time += 1
+                        if test_time > self.timeout:
+                            print("===TIME OUT OH NO===")
+                            out = 1
+                            self.failure_to_finish()
+
+                            port = requests.get(
+                                "http://localhost:8001/new_connection")
+                            s = socket.create_connection(
+                                ("localhost", int(port.text)))
                         continue
 
                 except:
@@ -161,6 +175,10 @@ class Bot:
 
     def create_info_tuple(self, message: list) -> tuple:
         return (message[0], message[1], message[2])
+
+    def failure_to_finish(self):
+        print("=COULDN'T FINISH=")
+        pass
 
 
 class Reward():

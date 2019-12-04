@@ -1,16 +1,24 @@
 from DQN import DQNAgent, QReward, Trainer
 from concurrent.futures import ThreadPoolExecutor
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Activation, Input, Convolution1D, Flatten, LeakyReLU
+from tensorflow.keras.layers import Dense, Activation, Input, Convolution1D, Flatten, LeakyReLU, MaxPooling1D
 from tensorflow.keras.models import Model
 from tensorflow.keras import optimizers
 from threading import Thread
 import numpy as np
 import tensorflow.keras.models as models
 from tensorflow.keras.models import load_model
+import tensorflow as tf
+import time
+
+num_bots = 64
+opts = tf.GPUOptions(per_process_gpu_memory_fraction=1)
+config = tf.ConfigProto(gpu_options=opts)
+config.gpu_options.allow_growth = True
+sess = tf.Session(config=config)
 
 while(True):
-    reward = QReward(.5)
+    reward = QReward()
     model = None
     try:
         model = load_model('trained_model.h5')
@@ -37,51 +45,47 @@ while(True):
 
         model = Model(inputs=inputs, outputs=den_7)
         optimizer = optimizers.Adagrad(lr=0.01)
-        model.compile(loss='mean_squared_error', optimizer=optimizer)
 
-    input_test = [i for i in range(0, 85)]
-
-    model_train= models.clone_model(model)
+    model_train = models.clone_model(model)
     model_train.set_weights(model.get_weights())
-    optimizer = optimizers.Adagrad(lr=0.01)
+    optimizer = optimizers.Adagrad(lr=0.001)
+    model.compile(loss='mean_squared_error', optimizer=optimizer)
     model_train.compile(loss='mean_squared_error', optimizer=optimizer)
 
-    for i in range(0, 1):
-        print(model.fit(x=np.array(input_test).reshape(1, -1),
-                        y=np.array([0 for i in range(0, 8)]).reshape(1, -1)))
-        print(model_train.fit(x=np.array(input_test).reshape(1, -1),
-                        y=np.array([0 for i in range(0, 8)]).reshape(1, -1)))
+    trainer = Trainer(model, model_train, .9, reward, num_bots, 5)
 
-    trainer = Trainer(model, model_train)
+    pool = ThreadPoolExecutor(max_workers=num_bots)
 
-    pool = ThreadPoolExecutor(max_workers=255)
+    agents = list()
 
-    for i in range(0, 255):
+    for i in range(0, num_bots):
+        agents.append(
+            DQNAgent(5, reward, model=trainer, epsilon=.95, gamma=.75, document=True))
         pool.submit(
-            DQNAgent(5, reward, model=trainer, epsilon=.9).run_bot_join)
+            agents[-1].run_bot_join)
 
-    doc_bot = DQNAgent(5, reward, model=trainer, epsilon=.9, document=True)
-    doc_bot.run_bot_join()
-    pool.shutdown(wait=True)
+    trainer.recall()
+    pool.shutdown(wait=False)
+    del(pool)
+
+    max_day = 0
+    avg_mafia_wins = 0
+    avg_detective_kills = 0
+    for agent in agents:
+        max_day += agent.avg_last_day/5
+        avg_detective_kills += agent.detective_kills
+        avg_mafia_wins += agent.mafia_wins
+    avg_detective_kills /= len(agents)
+    avg_mafia_wins /= len(agents)
+    max_day /= len(agents)
 
     with open("train_data.txt", "a") as f:
-        f.write("{}, {}, {}\n".format(doc_bot.mafia_wins, doc_bot.detective_kills, doc_bot.avg_last_day))
-
-    with open("accuracy.txt", "a") as f:
-        for num in trainer.accuracy:
-            f.write("{}\n".format(num))
+        f.write("{}, {}, {}\n".format(avg_mafia_wins,
+                                      avg_detective_kills, max_day))
 
     with open("loss.txt", "a") as f:
         for num in trainer.loss:
             f.write("{}\n".format(num))
 
-    with open("val_accuracy.txt", "a") as f:
-        for num in trainer.val_accuracy:
-            f.write("{}\n".format(num))
-
-    with open("val_loss.txt", "a") as f:
-        for num in trainer.val_loss:
-            f.write("{}\n".format(num))
-
     print("Shut down!")
-    trainer.train_model.save('trained_model.h5')
+    trainer.predictor_model.save('trained_model.h5')
